@@ -1,0 +1,6 @@
+{
+  "_설명": "이 PC 전용 설정입니다. 이 파일을 'studio.config.json' 으로 복사한 뒤 값을 채우세요(studio.config.json 은 커밋되지 않음). setup.command 를 쓰면 자동 생성됩니다.",
+  "referenceRepoDir": "여기에_prizm-curation-editor_를_clone한_로컬_절대경로_입력",
+  "user": "본인이메일@example.com",
+  "autoPull": true
+}

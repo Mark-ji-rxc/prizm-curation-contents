@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PRIZM 콘텐츠 스튜디오</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">PRIZM 콘텐츠 스튜디오</div>
+  <nav class="steps" id="steps">
+    <button class="step active" data-step="1"><b>1</b> 상품 불러오기</button>
+    <button class="step" data-step="2"><b>2</b> 콘텐츠 생성</button>
+    <button class="step" data-step="3"><b>3</b> 상품 선택</button>
+    <button class="step" data-step="4"><b>4</b> 이미지 찾기</button>
+    <button class="step" data-step="5"><b>5</b> 미리보기</button>
+    <button class="step" data-step="6"><b>6</b> 등록</button>
+  </nav>
+</header>
+
+<main>
+  <!-- ① 크롤링 -->
+  <section class="panel active" data-panel="1">
+    <div class="row between">
+      <div>
+        <h2>상품 불러오기</h2>
+        <p class="muted">PRIZM에서 현재 판매 중인 국내/해외 상품을 업데이트합니다.</p>
+      </div>
+      <div class="btns">
+        <button id="crawlDomestic" class="btn primary">국내 업데이트</button>
+        <button id="crawlOverseas" class="btn">해외 업데이트</button>
+        <button id="crawlBoth" class="btn ghost">전체</button>
+      </div>
+    </div>
+    <div id="crawlLog" class="log hidden"></div>
+    <div class="row between mt">
+      <div class="tabs" id="productTabs">
+        <button class="tab active" data-source="domestic">국내</button>
+        <button class="tab" data-source="overseas">해외</button>
+      </div>
+      <a id="downloadCsv" class="btn sm" href="#">CSV 다운로드</a>
+    </div>
+    <div class="filters">
+      <select id="fRegion" class="input sm"><option value="">지역 전체</option></select>
+      <select id="fNights" class="input sm"><option value="">박수 전체</option></select>
+      <select id="fStatus" class="input sm"><option value="">상태 전체</option></select>
+      <span class="fprice"><input id="fPriceMin" class="input sm" type="number" placeholder="최소가" /><span class="muted">~</span><input id="fPriceMax" class="input sm" type="number" placeholder="최대가" /><span class="muted sm">원</span></span>
+      <input id="productFilter" class="input sm" placeholder="상품명 검색" />
+      <button id="fReset" class="btn sm ghost">필터 초기화</button>
+    </div>
+    <div id="productMeta" class="muted sm"></div>
+    <div class="tablewrap"><table id="productTable"><thead></thead><tbody></tbody></table></div>
+  </section>
+
+  <!-- ② 콘텐츠 생성 -->
+  <section class="panel" data-panel="2">
+    <h2>콘텐츠 생성</h2>
+    <p class="muted">주제로 자동 생성하거나, 내가 쓴 콘텐츠에 어울리는 상품·호텔·여행지를 매칭할 수 있어요. 아래에서 상품을 직접 골라 그 안에서만 만들 수도 있습니다.</p>
+
+    <div class="mode-tabs" id="genModeTabs">
+      <button class="mtab active" data-mode="generate">주제로 자동 생성</button>
+      <button class="mtab" data-mode="brief">브리프(지시)로 생성</button>
+      <button class="mtab" data-mode="match">내가 쓴 콘텐츠에 상품 매칭</button>
+    </div>
+    <label class="web-check"><input type="checkbox" id="cWeb" /> 🔎 인터넷 검색으로 사실·아이디어 보강 <span class="muted sm">(품질↑, 속도는 느려짐)</span></label>
+
+    <!-- 공통: 구분 / 지역 / 판매 조건 -->
+    <div class="form">
+      <label>구분
+        <select id="cScope"><option value="domestic">국내</option><option value="overseas">해외</option></select>
+      </label>
+      <label>지역(국내, 선택)
+        <input id="cRegion" class="input" placeholder="예: 서울 (비우면 전체)" />
+      </label>
+      <label>판매 조건
+        <select id="cCondition">
+          <option value="selling">판매중</option>
+          <option value="all">노출 상품 전체 (불러온 모든 상품)</option>
+          <option value="always">상시판매만 (상시판매 상품·호텔/여행지)</option>
+          <option value="until">특정일까지 판매하는 상품</option>
+          <option value="upcoming">판매예정만</option>
+        </select>
+      </label>
+      <label id="cUntilWrap" class="hidden">이 날짜까지 판매(이후까지)
+        <input id="cUntil" class="input" type="date" />
+      </label>
+    </div>
+
+    <label class="block">상품 타입 (선택 · 여러 개 가능 · 비우면 전체)
+      <div id="typeChips" class="chips"></div>
+    </label>
+
+    <!-- 상품 직접 선택(두 모드 공통) -->
+    <div class="picker-bar">
+      <button id="togglePicker" class="btn sm ghost">🧺 상품 직접 선택 (<span id="pickCount">0</span>)</button>
+      <span class="muted sm">선택하면 그 상품들 안에서만 생성/매칭합니다. 비우면 위 조건 전체를 사용해요.</span>
+    </div>
+    <div id="pickerPanel" class="hidden">
+      <div class="filters">
+        <select id="pkSource" class="input sm"><option value="">국내+해외</option><option value="domestic">국내</option><option value="overseas">해외</option></select>
+        <select id="pkHotel" class="input sm"><option value="">호텔·여행지 전체</option></select>
+        <select id="pkType" class="input sm"><option value="">종류 전체</option></select>
+        <input id="pkKeyword" class="input sm" placeholder="상품명 검색" />
+        <button id="pkClear" class="btn sm ghost">선택 해제</button>
+      </div>
+      <div id="pkMeta" class="muted sm"></div>
+      <div id="pickerList" class="pick-list"></div>
+    </div>
+
+    <!-- generate 모드 전용 -->
+    <div id="genFields">
+      <div class="form">
+        <label>주제 개수
+          <input id="cCount" class="input" type="number" min="1" max="20" value="5" />
+        </label>
+        <label>주제별 개수
+          <input id="cPerTopic" class="input" type="number" min="1" max="10" value="1" />
+        </label>
+        <label>생성 속도
+          <select id="cModel" class="input"><option value="opus">품질 우선 (Opus)</option><option value="sonnet">빠르게 (Sonnet)</option></select>
+        </label>
+        <label class="grow">주제 방향 (선택 · 비우면 데이터에서 자동으로 뽑음)
+          <input id="cTopic" class="input" placeholder="비워두면 상품 데이터 기반으로 주제 자동 도출 (프리셋 클릭 시 힌트로 사용)" />
+        </label>
+      </div>
+      <div id="themePresets" class="chips"></div>
+      <label class="block">본문 형 (선택 · 여러 개 선택 가능)
+        <div id="formChips" class="chips"></div>
+      </label>
+      <div class="form">
+        <label class="grow">화자(선택)
+          <select id="cPersona" class="input">
+            <option value="">자동</option>
+            <optgroup label="① 후기·고백형">
+              <option>호캉스 단골 서지우</option>
+              <option>「다녀왔습니다」</option>
+              <option>호캉스 멤버스</option>
+            </optgroup>
+            <optgroup label="② 장면·몰입형">
+              <option>여행 에세이스트 윤도</option>
+              <option>「SCENE 그 순간」</option>
+            </optgroup>
+            <optgroup label="③ 반전·통념깨기형">
+              <option>팩트체커 우진</option>
+              <option>「알고 보면」</option>
+            </optgroup>
+            <optgroup label="④ 팁·정보형">
+              <option>가이드 정</option>
+              <option>「호텔 사용설명서」</option>
+              <option>컨시어지 데스크</option>
+            </optgroup>
+            <optgroup label="⑤ 단정·선언형">
+              <option>카피 디렉터 K</option>
+              <option>「시그니처 에디션」</option>
+            </optgroup>
+            <optgroup label="⑥ 조건·타깃지목형">
+              <option>여행 MD 소은</option>
+              <option>「FOR YOU 당신에게」</option>
+            </optgroup>
+            <optgroup label="⑦ 질문·대화형">
+              <option>여행 상담사 하린</option>
+              <option>「혹시 당신도」</option>
+            </optgroup>
+            <optgroup label="⑧ 비교·대조형">
+              <option>비교러 태오</option>
+              <option>「A or B」</option>
+            </optgroup>
+            <optgroup label="⑨ 숫자·근거형">
+              <option>여행 애널리스트 준</option>
+              <option>「숫자로 보는 여행」</option>
+            </optgroup>
+            <optgroup label="⑩ 큐레이터편지형">
+              <option>수석 큐레이터 이서</option>
+              <option>「Editor's Letter」</option>
+            </optgroup>
+          </select>
+        </label>
+        <button id="genContent" class="btn primary">콘텐츠 생성</button>
+      </div>
+    </div>
+
+    <!-- match 모드 전용 -->
+    <div id="matchFields" class="hidden">
+      <div class="form">
+        <label class="grow">콘텐츠 제목
+          <input id="mTitle" class="input" placeholder="내가 쓴 콘텐츠 제목" />
+        </label>
+      </div>
+      <label class="block">콘텐츠 본문
+        <textarea id="mBody" class="input" rows="5" placeholder="내가 쓴 콘텐츠 본문을 붙여넣으세요. Claude가 분석해 어울리는 상품·호텔·여행지를 매칭합니다."></textarea>
+      </label>
+      <button id="matchContent" class="btn primary mt">내 콘텐츠로 상품·호텔·여행지 매칭</button>
+    </div>
+
+    <!-- brief 모드 전용 -->
+    <div id="briefFields" class="hidden">
+      <label class="block">브리프 / 지시 (방향·컨셉·스토리)
+        <textarea id="bBrief" class="input" rows="5" placeholder="예: 도쿠시마 도미가 유명한데, 세계 3대 급류 나루토 해협의 거센 물살을 이겨내며 자라 뼈에 혹이 생길 정도이고 살이 탱글탱글해 맛이 좋다. 벚꽃 필 무렵 '사쿠라다이'가 최고. 이 컨셉으로 도쿠시마 여행을 추천하는 콘텐츠를 만들어줘."></textarea>
+      </label>
+      <div class="form">
+        <label>개수 <input id="bCount" class="input" type="number" min="1" max="10" value="1" /></label>
+        <button id="genBrief" class="btn primary">브리프로 콘텐츠 생성</button>
+        <span class="muted sm">현재 위의 구분·판매 조건·직접 선택 상품이 함께 적용됩니다. 🔎 검색을 켜면 사실을 확인해 더 정확·풍부하게 씁니다.</span>
+      </div>
+    </div>
+    <div id="contentJobBanner" class="banner hidden"></div>
+    <div class="saved-bar">
+      <button id="toggleSaved" class="btn sm ghost">⭐ 저장된 콘텐츠 (<span id="savedCount">0</span>)</button>
+      <button id="analyzeSaved" class="btn sm">🧠 저장 콘텐츠 학습 분석</button>
+      <span class="muted sm">맘에 드는 콘텐츠를 저장해두면 나중에 바로 불러올 수 있어요. [학습 분석]은 저장 콘텐츠의 특징을 분석해 다음 생성 품질에 반영합니다.</span>
+    </div>
+    <div id="analyzeBanner" class="banner hidden"></div>
+    <div id="savedFilter" class="chips hidden" style="margin:8px 0"></div>
+    <div id="savedList" class="cards hidden"></div>
+
+    <div class="picker-bar">
+      <button id="toggleSchedule" class="btn sm ghost">⏰ 예약 생성 (<span id="scheduleCount">0</span>)</button>
+      <span class="muted sm">지정한 시간(예: 매주 월 03:00)에 자동으로 생성해 "저장된 콘텐츠"에 넣어둡니다. 프로그램이 켜져 있어야 실행돼요.</span>
+    </div>
+    <div id="schedulePanel" class="hidden">
+      <div class="muted sm" style="margin-bottom:8px">반복·시간을 정하고 <b>[현재 설정으로 예약 추가]</b>를 누르면, 지금 위에 설정한 생성 조건(구분·주제 개수·주제별 개수·본문 형·판매 조건·직접 선택 상품 등)이 그 시간에 자동 실행됩니다.</div>
+      <div class="form">
+        <label>이름 <input id="schName" class="input" placeholder="예: 주간 조식 콘텐츠" /></label>
+        <label>반복
+          <select id="schType" class="input"><option value="weekly">매주</option><option value="daily">매일</option><option value="once">한 번만</option></select>
+        </label>
+        <label id="schDayWrap">요일
+          <select id="schDay" class="input"><option value="1">월</option><option value="2">화</option><option value="3">수</option><option value="4">목</option><option value="5">금</option><option value="6">토</option><option value="0">일</option></select>
+        </label>
+        <label id="schDateWrap" class="hidden">날짜 <input id="schDate" class="input" type="date" /></label>
+        <label>시간 <input id="schTime" class="input" type="time" value="03:00" /></label>
+        <button id="addSchedule" class="btn primary">현재 설정으로 예약 추가</button>
+      </div>
+      <div id="scheduleList" class="pick-list"></div>
+    </div>
+
+    <div class="picker-bar">
+      <button id="toggleRef" class="btn sm ghost">📚 모범 콘텐츠 (<span id="refCount">0</span>)</button>
+      <span class="muted sm">실제 에디터가 쓴 우수 콘텐츠를 등록하면, 이후 생성 때 그 톤·구성·퀄리티를 참고(학습)해 더 좋은 결과를 냅니다.</span>
+    </div>
+    <div id="refPanel" class="hidden">
+      <div class="row between" style="margin-bottom:8px">
+        <span id="refCurInfo" class="muted sm"></span>
+        <button id="syncRef" class="btn sm">🔄 최신 모범 받기</button>
+      </div>
+      <div class="form">
+        <label class="grow">제목 <input id="refTitle" class="input" placeholder="예시 콘텐츠 제목 (선택)" /></label>
+        <label>본문 형 <input id="refForm" class="input" placeholder="예: ④팁·정보형 (선택)" /></label>
+      </div>
+      <label class="block">본문 <textarea id="refBody" class="input" rows="4" placeholder="에디터가 쓴 우수 콘텐츠 본문을 붙여넣으세요. 여러 편 등록할수록 학습 효과가 커집니다."></textarea></label>
+      <button id="addRef" class="btn primary mt">모범 콘텐츠 추가</button>
+      <div id="refList" class="pick-list"></div>
+    </div>
+
+    <div id="contentCards" class="cards"></div>
+  </section>
+
+  <!-- ③ 상품 선택 -->
+  <section class="panel" data-panel="3">
+    <div class="row between">
+      <div>
+        <h2>상품 선택</h2>
+        <p class="muted" id="prodStepHint">추천된 상품 중 콘텐츠에 넣을 상품을 선택하세요. [자세히]로 상세 정보를 볼 수 있어요.</p>
+      </div>
+      <div class="btns">
+        <button id="prodSelectAll" class="btn ghost">전체 선택/해제</button>
+        <button id="confirmProducts" class="btn primary">상품 선택 완료 → 이미지 찾기</button>
+      </div>
+    </div>
+    <div id="productPick" class="pick-list"></div>
+  </section>
+
+  <!-- ④ 이미지 찾기 -->
+  <section class="panel" data-panel="4">
+    <div class="row between">
+      <div>
+        <h2>이미지 찾기</h2>
+        <p class="muted" id="imgHotelHint">선택한 콘텐츠의 매칭 호텔에서 이미지를 찾습니다.</p>
+      </div>
+      <div class="btns">
+        <button id="recImages" class="btn primary">Claude 추천 받기</button>
+        <button id="downloadImages" class="btn">선택 이미지 다운로드</button>
+        <button id="confirmImages" class="btn ghost">이미지 컨펌 → 미리보기</button>
+      </div>
+    </div>
+    <div class="img-layout">
+      <aside class="img-side" id="imgSide"></aside>
+      <div class="img-main">
+        <div class="row gap img-controls">
+          <select id="imgHotelSelect" class="input"></select>
+          <input id="imgFilter" class="input sm" placeholder="카테고리/파일명 필터(예: 라운지, 조식, 오션)" />
+          <label class="btn sm" for="imgUpload" title="내 이미지 업로드">⬆ 이미지 업로드</label>
+          <input id="imgUpload" type="file" accept="image/*" multiple class="hidden" />
+          <button id="toggleTree" class="btn sm ghost">📁 NAS 폴더 직접 찾기</button>
+          <span id="imgMeta" class="muted sm"></span>
+        </div>
+        <div id="treePanel" class="tree-panel hidden">
+          <div class="tree-bar">
+            <button id="treeUp" class="btn sm">◀ 상위</button>
+            <span id="treeCrumb" class="muted sm"></span>
+            <button id="treeLoad" class="btn sm primary">이 폴더 이미지 불러오기</button>
+          </div>
+          <div id="treeDirs" class="tree-dirs"></div>
+        </div>
+        <div id="imgRecBanner" class="banner hidden"></div>
+        <div id="gallery" class="gallery"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ⑤ 미리보기 -->
+  <section class="panel" data-panel="5">
+    <h2>미리보기</h2>
+    <p class="muted">등록 시 노출 형태 3종. 첨부 이미지 비율에 따라 세로형/가로형이 자동 적용됩니다.</p>
+    <div id="previewArea" class="previews"></div>
+  </section>
+
+  <!-- ⑥ 등록 -->
+  <section class="panel" data-panel="6">
+    <h2>콘텐츠 등록</h2>
+    <p class="muted">차후 진행 예정 — API 없이 Claude가 웹(오피스)에 이미지까지 등록하도록 세팅합니다.</p>
+    <div class="banner">🚧 준비 중입니다. 컨펌된 콘텐츠·이미지는 <code>state.json</code>에 저장되어 있어, 등록 단계에서 그대로 사용합니다.</div>
+    <pre id="stateDump" class="log"></pre>
+  </section>
+</main>
+
+<div id="lightbox" class="lightbox hidden"><img id="lightboxImg" alt="" /></div>
+<div id="productModal" class="modal hidden"><div class="modal-card"><button class="modal-close" aria-label="닫기">✕</button><div id="productModalBody"></div></div></div>
+
+<script src="/preview.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

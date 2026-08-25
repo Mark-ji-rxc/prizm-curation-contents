@@ -1,0 +1,10 @@
+{
+  "_설명": "이 파일을 'nas.config.json' 으로 복사한 뒤 NAS(Synology) 접속정보를 채우세요. 읽기 전용 계정 권장. nas.config.json 은 커밋되지 않음(비밀번호 보호).",
+  "host": "예: 192.168.0.10 또는 nas.example.com",
+  "port": 5000,
+  "https": false,
+  "verifyTls": true,
+  "user": "NAS_읽기전용_계정",
+  "password": "NAS_비밀번호",
+  "otp": ""
+}

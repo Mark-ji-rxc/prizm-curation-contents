@@ -1,0 +1,5 @@
+{
+  "apiKey": "여기에_Anthropic_API_키(sk-ant-...)",
+  "model": "claude-opus-5",
+  "_주석": "이 파일을 ai.config.json 으로 복사한 뒤 API 키를 넣으세요. 비용/속도를 낮추려면 model 을 'claude-sonnet-5' 또는 'claude-haiku-4-5' 로 바꿔도 됩니다."
+}

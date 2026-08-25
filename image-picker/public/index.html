@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>콘텐츠 이미지 추천기</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header>
+    <h1>🖼️ 콘텐츠 이미지 추천기</h1>
+    <div id="status" class="status"></div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <section class="card">
+        <h2>1. 입력 방식</h2>
+        <div class="tabs">
+          <button class="tab active" data-tab="manual">호텔 직접 선택</button>
+          <button class="tab" data-tab="md">콘텐츠 md 불러오기</button>
+        </div>
+
+        <div id="tab-manual" class="tabpane active">
+          <label>호텔 <span class="hint" style="display:inline">(⌘/Ctrl·Shift로 여러 개 선택 — 큐레이션 콘텐츠)</span></label>
+          <input id="hotelSearch" placeholder="호텔명 검색…" autocomplete="off" />
+          <select id="hotelSelect" size="8" multiple></select>
+          <div id="hotelSelCount" class="hint"></div>
+          <label>콘텐츠 주제/제목</label>
+          <input id="themeInput" placeholder="예: 조식이 처음부터 들어 있는 객실" />
+          <label>콘텐츠 본문 (선택)</label>
+          <textarea id="bodyInput" rows="4" placeholder="본문을 붙여넣으면 AI 추천 정확도가 올라갑니다."></textarea>
+        </div>
+
+        <div id="tab-md" class="tabpane">
+          <label>콘텐츠 파일</label>
+          <select id="mdFile"></select>
+          <label>주제</label>
+          <select id="mdTopic" size="8"></select>
+          <div class="hint" id="mdHotelHint"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>2. 이미지 불러오기</h2>
+        <button id="loadBtn" class="primary">해당 호텔 이미지 검색</button>
+        <div id="resolveInfo" class="resolve"></div>
+        <div id="candBox" class="candbox"></div>
+        <details id="manualDrill" class="drill">
+          <summary>폴더가 잘못 잡혔나요? 직접 찾기</summary>
+          <div id="treeView" class="tree"></div>
+        </details>
+      </section>
+
+      <section class="card">
+        <h2>3. 필터 &amp; 추천</h2>
+        <div id="keywordChips" class="chips"></div>
+        <button id="sendBtn" class="ai">📁 Claude에게 보낼 폴더로 저장</button>
+        <div id="sendNote" class="hint"></div>
+        <button id="aiBtn" class="secondary" style="display:none; width:100%; margin-top:8px;">✨ API로 자동 추천</button>
+        <div id="aiNote" class="hint"></div>
+      </section>
+
+      <section class="card">
+        <h2>선택한 이미지 <span id="selCount">0</span></h2>
+        <div id="selectedList" class="selected"></div>
+        <div class="selbtns">
+          <button id="dlBtn" class="primary">📥 선택 원본 다운로드</button>
+          <button id="exportBtn">경로 목록 복사</button>
+        </div>
+        <div id="dlNote" class="hint"></div>
+      </section>
+    </aside>
+
+    <main class="gallery-wrap">
+      <div id="galleryInfo" class="gallery-info">호텔을 고르고 “이미지 검색”을 눌러주세요.</div>
+      <div id="gallery" class="gallery"></div>
+    </main>
+  </div>
+
+  <div id="lightbox" class="lightbox hidden">
+    <img id="lightboxImg" />
+    <div class="lb-actions">
+      <a id="lbDownload" href="#">원본 다운로드</a>
+      <button id="lbClose">닫기</button>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
