@@ -43,7 +43,7 @@
    ```
 2. **공유 모범 코퍼스 clone** (별도 저장소)
    ```bash
-   git clone https://github.com/rxcompany/prizm-curation-editor.git
+   git clone https://github.com/Mark-ji-rxc/prizm-curation-editor.git
    cd prizm-curation-editor && git config user.email "본인이메일" && cd ..
    ```
 3. **NAS 설정**: `image-picker/nas.config.example.json` → `nas.config.json` 으로 복사 후 채우기

@@ -5,7 +5,7 @@
 # ─────────────────────────────────────────────────────────────
 cd "$(dirname "$0")" || exit 1
 ROOT="$(pwd)"
-CURATION_URL="https://github.com/rxcompany/prizm-curation-editor.git"
+CURATION_URL="https://github.com/Mark-ji-rxc/prizm-curation-editor.git"
 
 echo "▶ PRIZM 콘텐츠 스튜디오 설치/실행"
 echo "  위치: $ROOT"
