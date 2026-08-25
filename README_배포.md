@@ -21,8 +21,8 @@
 
 1. 코드 내려받기:
    ```bash
-   git clone https://github.com/rxcompany/prizm-content-studio.git
-   cd prizm-content-studio
+   git clone https://github.com/Mark-ji-rxc/prizm-curation-contents.git
+   cd prizm-curation-contents
    ```
 2. **`setup.command` 더블클릭** (또는 `bash setup.command`)
    - Node/Claude 확인 → 공유 코퍼스 clone → 설정파일 생성까지 자동
@@ -38,8 +38,8 @@
 
 1. **코드 clone**
    ```bash
-   git clone https://github.com/rxcompany/prizm-content-studio.git
-   cd prizm-content-studio
+   git clone https://github.com/Mark-ji-rxc/prizm-curation-contents.git
+   cd prizm-curation-contents
    ```
 2. **공유 모범 코퍼스 clone** (별도 저장소)
    ```bash
