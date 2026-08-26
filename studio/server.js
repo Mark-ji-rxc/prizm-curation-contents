@@ -495,9 +495,14 @@ function pickProducts({ scope, region, condition, until, productCodes, productTy
 }
 // 콘텐츠 생성 UI용: 존재하는 상품 타입 목록(프리미엄 호텔·리조트·라이프스타일·해외패키지·해외호텔·현지투어 등)
 function productTypeList() {
-  const map = new Map();
-  for (const s of ['domestic', 'overseas']) for (const r of crawl.normalizedItems(s)) { if (r.productType) map.set(r.productType, (map.get(r.productType) || 0) + 1); }
-  return [...map.entries()].map(([type, count]) => ({ type, count })).sort((a, b) => b.count - a.count);
+  const map = new Map(); // type -> {count, domestic, overseas}
+  for (const s of ['domestic', 'overseas']) for (const r of crawl.normalizedItems(s)) {
+    if (!r.productType) continue;
+    const e = map.get(r.productType) || { count: 0, domestic: 0, overseas: 0 };
+    e.count++; e[s]++; map.set(r.productType, e);
+  }
+  // source: 국내/해외 구분(둘 다면 both) — UI에서 선택 구분에 맞춰 필터
+  return [...map.entries()].map(([type, e]) => ({ type, count: e.count, source: e.domestic && e.overseas ? 'both' : e.domestic ? 'domestic' : 'overseas' })).sort((a, b) => b.count - a.count);
 }
 // 저장 콘텐츠를 국내 호텔 / 해외 여행상품으로 분류(매칭 상품코드·ID를 데이터셋과 대조)
 function buildDomOvsIndex() {

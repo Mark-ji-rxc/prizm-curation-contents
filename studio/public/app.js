@@ -115,16 +115,16 @@ function openProductModal(r) {
   if (!r) return;
   const isOv = r.source === 'overseas';
   const secs = isOv
-    ? `<div class="sec"><b>📋 기본 정보</b><pre class="pkg">${esc(r.baseInfo || '(정보 없음)')}</pre></div>
-       <div class="sec"><b>⭐ 단독 구성</b><pre class="pkg">${esc(r.exclusive || '(정보 없음)')}</pre></div>`
-    : `<div class="sec"><b>🎁 PKG 혜택 (패키지 포함내역)</b><pre class="pkg">${esc(r.detail || '(정보 없음)')}</pre></div>`;
-  const persons = (r.maxPersons || r.basePersons) ? `<div class="sub">👤 투숙 인원 · 기준 ${esc(r.basePersons || '-')} / <b>최대 ${esc(r.maxPersons || '-')}</b></div>` : '';
+    ? `<div class="sec"><b>기본 정보</b><pre class="pkg">${esc(r.baseInfo || '(정보 없음)')}</pre></div>
+       <div class="sec"><b>단독 구성</b><pre class="pkg">${esc(r.exclusive || '(정보 없음)')}</pre></div>`
+    : `<div class="sec"><b>PKG 혜택 (패키지 포함내역)</b><pre class="pkg">${esc(r.detail || '(정보 없음)')}</pre></div>`;
+  const persons = (r.maxPersons || r.basePersons) ? `<div class="sub">투숙 인원 · 기준 ${esc(r.basePersons || '-')} / <b>최대 ${esc(r.maxPersons || '-')}</b></div>` : '';
   $('#productModalBody').innerHTML = `
     <h3>${esc(r.name)}</h3>
     <div class="sub">${isOv ? esc(r.type) : esc(r.hotel) + ' · ' + esc(r.region)} · 상품ID <code>${esc(r.productId || '-')}</code> · 코드 <code>${esc(r.productCode || '-')}</code> · ${won(r.price)} · ${esc(r.status)}</div>
     ${persons}
     ${secs}
-    <div class="sec"><a class="btn sm" href="${esc(r.url)}" target="_blank" rel="noopener">PRIZM에서 상품 열기 ↗</a></div>`;
+    <div class="sec"><a class="btn sm" href="${esc(r.url)}" target="_blank" rel="noopener">PRIZM에서 상품 열기 </a></div>`;
   $('#productModal').classList.remove('hidden');
 }
 $('#productModal').addEventListener('click', (e) => { if (e.target.id === 'productModal' || e.target.classList.contains('modal-close')) $('#productModal').classList.add('hidden'); });
@@ -138,7 +138,7 @@ async function loadThemes() {
       $('#themePresets').innerHTML = (t[scope] || []).map((x) => `<span class="chip">${esc(x)}</span>`).join('');
     };
     render();
-    $('#cScope').addEventListener('change', render);
+    $('#cScope').addEventListener('change', () => { render(); renderTypeChips(); }); // 구분 바뀌면 상품 타입 칩도 재필터
     $('#themePresets').addEventListener('click', (e) => { if (e.target.classList.contains('chip')) $('#cTopic').value = e.target.textContent; });
   } catch {}
 }
@@ -176,7 +176,7 @@ async function submitGeneration(extra) {
     const { jobId, productCount, auto } = await api('/api/content/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const scopeNote = pickCodes.size ? `선택 상품 ${productCount}개` : `상품 ${productCount}개`;
     const total = (Number(body.count) || 0) * (Number(body.perTopic) || 1);
-    const web = body.webSearch ? ' · 🔎검색' : '';
+    const web = body.webSearch ? ' · 검색' : '';
     const note = extra.mode === 'match' ? `${scopeNote} 중 매칭 중…`
       : extra.mode === 'brief' ? `브리프로 콘텐츠 ${body.count}편 생성 중${web}`
       : `${scopeNote} 기준 · 주제 ${body.count}개 × ${body.perTopic || 1} = 콘텐츠 ${total}편${web}`;
@@ -197,11 +197,17 @@ $('#formChips').addEventListener('click', (e) => { const c = e.target.closest('.
 
 // 상품 타입 다중선택(프리미엄 호텔·리조트·라이프스타일·해외패키지·해외호텔·현지투어 등)
 const selTypes = new Set();
+let allProductTypes = []; // 전체 타입(출처 포함) — 구분 선택에 따라 필터
 async function loadProductTypes() {
-  try {
-    const { types } = await api('/api/product-types');
-    $('#typeChips').innerHTML = types.map((t) => `<span class="chip ${selTypes.has(t.type) ? 'sel' : ''}" data-type="${esc(t.type)}">${esc(t.type)} <span class="muted">${t.count}</span></span>`).join('') || '<span class="muted sm">타입 정보 없음 (국내 타입은 재크롤 후 표시)</span>';
-  } catch {}
+  try { const { types } = await api('/api/product-types'); allProductTypes = types || []; renderTypeChips(); } catch {}
+}
+// 선택한 구분(국내/해외)에 해당하는 타입만 노출(both는 항상). 구분 밖 선택은 해제.
+function renderTypeChips() {
+  const scope = ($('#cScope') && $('#cScope').value) || 'domestic';
+  const shown = allProductTypes.filter((t) => t.source === scope || t.source === 'both');
+  const shownSet = new Set(shown.map((t) => t.type));
+  [...selTypes].forEach((t) => { if (!shownSet.has(t)) selTypes.delete(t); }); // 다른 구분 타입은 선택 해제
+  $('#typeChips').innerHTML = shown.map((t) => `<span class="chip ${selTypes.has(t.type) ? 'sel' : ''}" data-type="${esc(t.type)}">${esc(t.type)} <span class="muted">${t.count}</span></span>`).join('') || '<span class="muted sm">타입 정보 없음 (재크롤 후 표시)</span>';
 }
 $('#typeChips').addEventListener('click', (e) => { const c = e.target.closest('.chip'); if (!c) return; const t = c.dataset.type; if (selTypes.has(t)) selTypes.delete(t); else selTypes.add(t); c.classList.toggle('sel'); });
 $('#matchContent').onclick = () => { if (!$('#mBody').value.trim()) return alert('매칭할 콘텐츠 본문을 입력하세요.'); submitGeneration({ mode: 'match', userTitle: $('#mTitle').value.trim(), userBody: $('#mBody').value.trim() }); };
@@ -258,9 +264,9 @@ function showJobBanner(el, phrase, note) {
     <button class="btn sm" onclick="navigator.clipboard.writeText('${esc(phrase)}')">복사</button></div>`;
 }
 function usageLine(u) {
-  if (!u) return '✅ 생성 완료.';
+  if (!u) return '생성 완료.';
   const inTok = (u.inputTokens || 0) + (u.cacheReadTokens || 0) + (u.cacheCreateTokens || 0);
-  return `✅ 생성 완료 · 모델 ${esc(u.model || '')} · 토큰 입력 ${inTok.toLocaleString()} / 출력 ${(u.outputTokens || 0).toLocaleString()} · 비용 $${(u.costUsd || 0).toFixed(4)} · ${Math.round((u.durationMs || 0) / 1000)}초`;
+  return `생성 완료 · 모델 ${esc(u.model || '')} · 토큰 입력 ${inTok.toLocaleString()} / 출력 ${(u.outputTokens || 0).toLocaleString()} · 비용 $${(u.costUsd || 0).toFixed(4)} · ${Math.round((u.durationMs || 0) / 1000)}초`;
 }
 function pollContent(jobId, banner, auto, stampCat) {
   let tries = 0;
@@ -289,12 +295,12 @@ function cardInner(it) {
     <div class="meta">${it.form ? `<span class="badge">${esc(it.form)}</span>` : ''}${it.persona ? `<span class="badge">${esc(it.persona)}</span>` : ''}</div>
     <div class="body">${esc(it.body)}</div>
     ${alts}
-    <div class="hotels"><b>🏨 매칭 호텔/여행지 (${hotels.length})</b><div class="meta">${hotelChips}</div></div>
-    <div class="matched"><b>🔗 매칭 상품 ${it.matched ? '(' + it.matched.length + '개)' : ''}</b><ul>${matched}</ul></div>`;
+    <div class="hotels"><b>매칭 호텔/여행지 (${hotels.length})</b><div class="meta">${hotelChips}</div></div>
+    <div class="matched"><b>매칭 상품 ${it.matched ? '(' + it.matched.length + '개)' : ''}</b><ul>${matched}</ul></div>`;
 }
 function renderContentCards(items) {
   $('#contentCards').innerHTML = items.map((it, i) => `<div class="ccard" data-i="${i}">${cardInner(it)}
-    <div class="card-actions"><button class="btn primary pick">이 콘텐츠 선택<br>→ 상품/쇼룸 선택</button><button class="btn edit">✏️ 수정</button><button class="btn save">⭐ 저장</button><button class="btn ref">📚 모범</button></div></div>`).join('');
+    <div class="card-actions"><button class="btn primary pick">이 콘텐츠 선택<br>→ 상품/쇼룸 선택</button><button class="btn edit">수정</button><button class="btn save">저장</button><button class="btn ref">모범</button></div></div>`).join('');
   $$('#contentCards .pick').forEach((btn, i) => btn.onclick = () => selectContent(items[i]));
   $$('#contentCards .save').forEach((btn, i) => btn.onclick = () => toggleSave(items[i], btn));
   $$('#contentCards .ref').forEach((btn, i) => btn.onclick = () => toggleRef(items[i], btn));
@@ -313,12 +319,12 @@ function editContentCard(cardEl, item, onDone) {
   cardEl.querySelector('.ed-apply').onclick = () => onDone({ ...item, title: cardEl.querySelector('.ed-title').value.trim(), body: cardEl.querySelector('.ed-body').value.trim(), form: cardEl.querySelector('.ed-form').value.trim(), persona: cardEl.querySelector('.ed-persona').value.trim() });
   cardEl.querySelector('.ed-cancel').onclick = () => onDone(null);
 }
-// ⭐ 저장 토글 — 한 번 더 누르면 저장 취소
+// 저장 토글 — 한 번 더 누르면 저장 취소
 async function toggleSave(item, btn) {
   try {
     if (btn && btn.dataset.savedId) {
       await api('/api/saved?id=' + encodeURIComponent(btn.dataset.savedId), { method: 'DELETE' });
-      delete btn.dataset.savedId; btn.classList.remove('on'); btn.textContent = '⭐ 저장';
+      delete btn.dataset.savedId; btn.classList.remove('on'); btn.textContent = '저장';
     } else {
       const r = await api('/api/saved', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ item }) });
       if (btn) { btn.dataset.savedId = r.id; btn.classList.add('on'); btn.textContent = '저장됨 ✓'; }
@@ -326,12 +332,12 @@ async function toggleSave(item, btn) {
     refreshSaved();
   } catch (e) { alert('저장 실패: ' + e.message); }
 }
-// 📚 모범 토글 — 한 번 더 누르면 모범 등록 취소
+// 모범 토글 — 한 번 더 누르면 모범 등록 취소
 async function toggleRef(item, btn) {
   try {
     if (btn && btn.dataset.refId) {
       await api('/api/references?id=' + encodeURIComponent(btn.dataset.refId), { method: 'DELETE' });
-      delete btn.dataset.refId; btn.classList.remove('on'); btn.textContent = '📚 모범';
+      delete btn.dataset.refId; btn.classList.remove('on'); btn.textContent = '모범';
     } else {
       const r = await api('/api/references', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ item }) });
       if (btn) { btn.dataset.refId = r.id; btn.classList.add('on'); btn.textContent = '모범 ✓'; }
@@ -353,10 +359,10 @@ async function loadMe() {
   document.body.classList.toggle('non-curator', !!me.curationEnabled && !me.isCurator);
   const info = $('#refCurInfo');
   if (info) info.textContent = me.curationEnabled
-    ? `담당자 전용 · 나(${me.user}) = ${me.isCurator ? '등록 가능 ✅' : '읽기 전용(등록 불가)'} · 담당자 ${me.curators.length}명`
+    ? `담당자 전용 · 나(${me.user}) = ${me.isCurator ? '등록 가능 ' : '읽기 전용(등록 불가)'} · 담당자 ${me.curators.length}명`
     : (me.shared ? '공유 저장소(자유 등록)' : '로컬(개인 저장)');
 }
-$('#syncRef').onclick = async () => { $('#syncRef').textContent = '동기화 중…'; try { const r = await api('/api/references/sync', { method: 'POST' }); renderReferences(r.items); $('#refCount').textContent = r.items.length; } catch {} $('#syncRef').textContent = '🔄 최신 모범 받기'; };
+$('#syncRef').onclick = async () => { $('#syncRef').textContent = '동기화 중…'; try { const r = await api('/api/references/sync', { method: 'POST' }); renderReferences(r.items); $('#refCount').textContent = r.items.length; } catch {} $('#syncRef').textContent = '최신 모범 받기'; };
 $('#toggleRef').onclick = async () => { const el = $('#refPanel'); const show = el.classList.contains('hidden'); el.classList.toggle('hidden'); $('#toggleRef').classList.toggle('on', show); if (show) { loadMe(); loadReferences(); } };
 $('#addRef').onclick = async () => {
   const body = $('#refBody').value.trim();
@@ -374,7 +380,7 @@ async function loadReferences() {
 function renderReferences(items) {
   const el = $('#refList');
   $('#refCount').textContent = items.length;
-  if (!items.length) { el.innerHTML = '<div class="muted">등록된 모범 콘텐츠가 없어요. 위에 붙여넣거나, 생성된/저장된 카드의 [📚 모범]으로 담아보세요.</div>'; return; }
+  if (!items.length) { el.innerHTML = '<div class="muted">등록된 모범 콘텐츠가 없어요. 위에 붙여넣거나, 생성된/저장된 카드의 [모범]으로 담아보세요.</div>'; return; }
   // 본문 형별로 그룹핑해 모아보기
   const byForm = {};
   items.forEach((it) => { const k = it.form || '(형 미지정)'; (byForm[k] = byForm[k] || []).push(it); });
@@ -442,7 +448,7 @@ function renderSchedules(schedules) {
 
 let savedAll = [];        // 저장 콘텐츠 전체(원본)
 let savedFilter = 'all';  // 'all' | 'domestic' | 'overseas' | 'unknown'
-const CAT_LABEL = { domestic: '🏨 국내 호텔', overseas: '✈️ 해외 여행상품', unknown: '· 미분류' };
+const CAT_LABEL = { domestic: '국내 호텔', overseas: '해외 여행상품', unknown: '· 미분류' };
 $('#toggleSaved').onclick = async () => {
   const el = $('#savedList'); const show = el.classList.contains('hidden');
   el.classList.toggle('hidden');
@@ -463,7 +469,7 @@ function renderSavedFilter() {
   $$('#savedFilter .chip').forEach((b) => b.onclick = () => { savedFilter = b.dataset.cat; renderSavedFilter(); renderSaved(currentSaved()); });
 }
 
-// 🧠 저장 콘텐츠 학습 분석 — 저장 콘텐츠의 특징을 분석해 다음 생성 품질에 반영(마크다운도 갱신)
+// 저장 콘텐츠 학습 분석 — 저장 콘텐츠의 특징을 분석해 다음 생성 품질에 반영(마크다운도 갱신)
 $('#analyzeSaved').onclick = async () => {
   const banner = $('#analyzeBanner');
   banner.classList.remove('hidden');
@@ -478,7 +484,7 @@ $('#analyzeSaved').onclick = async () => {
       if (j.status === 'done') {
         clearInterval(poll);
         renderAnalyzeResult(banner, j);
-      } else if (tries > 180) { clearInterval(poll); banner.innerHTML = '⏳ 분석이 지연되고 있어요. 잠시 후 다시 시도해 주세요.'; }
+      } else if (tries > 180) { clearInterval(poll); banner.innerHTML = '분석이 지연되고 있어요. 잠시 후 다시 시도해 주세요.'; }
     }, 2000);
   } catch (e) { banner.innerHTML = '분석 실패: ' + esc(e.message); }
 };
@@ -488,13 +494,13 @@ function renderAnalyzeResult(banner, j) {
   const titles = (ins.titlePatterns || []).map((p) => `<li>${esc(p)}</li>`).join('');
   const avoid = (ins.avoid || []).map((p) => `<li>${esc(p)}</li>`).join('');
   banner.innerHTML = `<div class="analyze-result">
-    <div class="row between"><b>🧠 저장 콘텐츠 학습 분석 완료 (${ins.count || 0}편)</b><button class="btn sm" id="analyzeClose">닫기</button></div>
+    <div class="row between"><b>저장 콘텐츠 학습 분석 완료 (${ins.count || 0}편)</b><button class="btn sm" id="analyzeClose">닫기</button></div>
     ${ins.summary ? `<p class="muted sm">${esc(ins.summary)}</p>` : ''}
     ${principles ? `<div><b class="sm">적용 원칙</b><ul class="sm">${principles}</ul></div>` : ''}
     ${titles ? `<div><b class="sm">제목 패턴</b><ul class="sm">${titles}</ul></div>` : ''}
     ${ins.toneNotes ? `<div><b class="sm">톤·보이스</b><p class="muted sm">${esc(ins.toneNotes)}</p></div>` : ''}
     ${avoid ? `<div><b class="sm">피할 것</b><ul class="sm">${avoid}</ul></div>` : ''}
-    <p class="muted sm">✅ 이 원칙은 앞으로 콘텐츠 생성 시 자동으로 반영됩니다. (마크다운: <code>저장콘텐츠_학습분석.md</code> 갱신됨)</p>
+    <p class="muted sm">이 원칙은 앞으로 콘텐츠 생성 시 자동으로 반영됩니다. (마크다운: <code>저장콘텐츠_학습분석.md</code> 갱신됨)</p>
   </div>`;
   const close = $('#analyzeClose'); if (close) close.onclick = () => banner.classList.add('hidden');
 }
@@ -504,12 +510,12 @@ async function reloadSaved() {
 }
 function renderSaved(items) {
   const el = $('#savedList');
-  if (!items.length) { el.innerHTML = `<div class="muted">${savedFilter === 'all' ? '저장된 콘텐츠가 없어요. 카드의 ⭐저장을 눌러 담아두세요.' : '이 분류에 저장된 콘텐츠가 없어요.'}</div>`; return; }
+  if (!items.length) { el.innerHTML = `<div class="muted">${savedFilter === 'all' ? '저장된 콘텐츠가 없어요. 카드의 저장을 눌러 담아두세요.' : '이 분류에 저장된 콘텐츠가 없어요.'}</div>`; return; }
   const bulk = (savedFilter === 'unknown' && items.length)
-    ? `<div class="bulk-recat"><span class="sm">미분류 ${items.length}편을 한 번에:</span><button class="btn sm" id="bulkDom">🏨 모두 국내 호텔로</button><button class="btn sm" id="bulkOvs">✈️ 모두 해외 여행상품으로</button></div>` : '';
+    ? `<div class="bulk-recat"><span class="sm">미분류 ${items.length}편을 한 번에:</span><button class="btn sm" id="bulkDom">모두 국내 호텔로</button><button class="btn sm" id="bulkOvs">모두 해외 여행상품으로</button></div>` : '';
   el.innerHTML = bulk + items.map((it) => `<div class="ccard" data-id="${esc(it.id)}"><div class="cat-badge cat-${it.category || 'unknown'}">${CAT_LABEL[it.category] || CAT_LABEL.unknown}</div>${cardInner(it)}
-    ${(it.category || 'unknown') === 'unknown' ? `<div class="recat"><span class="muted sm">분류 지정:</span><button class="btn sm recat-dom">🏨 국내 호텔</button><button class="btn sm recat-ovs">✈️ 해외 여행상품</button></div>` : ''}
-    <div class="card-actions"><button class="btn primary pick">이 콘텐츠 선택<br>→ 상품/쇼룸 선택</button><button class="btn edit">✏️ 수정</button><button class="btn ref">📚 모범</button><button class="btn remove">삭제</button></div>
+    ${(it.category || 'unknown') === 'unknown' ? `<div class="recat"><span class="muted sm">분류 지정:</span><button class="btn sm recat-dom">국내 호텔</button><button class="btn sm recat-ovs">해외 여행상품</button></div>` : ''}
+    <div class="card-actions"><button class="btn primary pick">이 콘텐츠 선택<br>→ 상품/쇼룸 선택</button><button class="btn edit">수정</button><button class="btn ref">모범</button><button class="btn remove">삭제</button></div>
     <div class="muted sm" style="margin-top:6px">저장 ${new Date(it.savedAt).toLocaleString('ko-KR')}${it.fromSchedule ? ' · 예약 실행' : ''}</div></div>`).join('');
   $$('#savedList .pick').forEach((btn, i) => btn.onclick = () => selectContent(items[i]));
   $$('#savedList .ref').forEach((btn, i) => btn.onclick = () => toggleRef(items[i], btn));
@@ -574,7 +580,7 @@ function renderShowroomPick() {
     <div class="pick-row ${selectedShowrooms.has(s.name) ? 'sel' : ''}">
       <label class="pick-check"><input type="checkbox" ${selectedShowrooms.has(s.name) ? 'checked' : ''} data-i="${i}" /></label>
       <div class="pick-main">
-        <div class="pick-name">${esc(s.name)} ${s.exact === false ? '<span class="badge warn" title="크롤 데이터에서 명칭을 못 찾았어요. 등록 전 확인 필요">⚠ 확인필요</span>' : '<span class="badge ok" title="크롤에서 확정된 명칭 · 등록 시 백오피스 쇼룸과 최종 매칭(명칭이 다르면 선택 요청)">크롤명 확정</span>'}</div>
+        <div class="pick-name">${esc(s.name)} ${s.exact === false ? '<span class="badge warn" title="크롤 데이터에서 명칭을 못 찾았어요. 등록 전 확인 필요">확인필요</span>' : '<span class="badge ok" title="크롤에서 확정된 명칭 · 등록 시 백오피스 쇼룸과 최종 매칭(명칭이 다르면 선택 요청)">크롤명 확정</span>'}</div>
         <div class="pick-sub">${s.kind === 'region' ? '지역(해외)' : '호텔(국내)'} · 연결 상품 ${s.products.length}개</div>
       </div>
     </div>`).join('') || '<div class="muted">추천 쇼룸이 없습니다. (콘텐츠에 매칭 호텔/지역이 없어요)</div>';
@@ -705,7 +711,7 @@ function renderGallery() {
     const rec = pickByPath.get(im.path);
     return `<div class="tile ${selectedTiles.has(im.path) ? 'sel' : ''} ${rec ? 'rec' : ''}" data-path="${esc(im.path)}" title="${esc(rec ? rec.reason : im.folder || '')}">
       <img loading="lazy" src="${src}" alt="" />
-      ${rec ? `<span class="rank">${rec.rank || '★'}</span>` : ''}
+      ${rec ? `<span class="rank">${rec.rank || ''}</span>` : ''}
       <span class="check">✓</span>
       ${im.folder ? `<span class="cat">${esc(im.folder)}</span>` : ''}
     </div>`;
@@ -723,7 +729,7 @@ function renderSelectedStrip() {
   const items = [...selectedTiles.values()].filter(Boolean);
   if (!items.length) { el.classList.add('hidden'); el.innerHTML = ''; return; }
   el.classList.remove('hidden');
-  el.innerHTML = `<div class="sel-head"><b>🖼 선택한 이미지 (${items.length})</b><button class="btn xs" id="selClear">전체 해제</button></div>
+  el.innerHTML = `<div class="sel-head"><b>선택한 이미지 (${items.length})</b><button class="btn xs" id="selClear">전체 해제</button></div>
     <div class="sel-thumbs">${items.map((im) => `<div class="sel-thumb" data-path="${esc(im.path)}" title="${esc((im.hotel || '') + ' · ' + (im.folder || ''))}">
       <img loading="lazy" src="/api/thumb?path=${encodeURIComponent(im.path)}&size=small&mtime=${encodeURIComponent(im.mtime || '')}" alt="" />
       <span class="sel-x">✕</span></div>`).join('')}</div>`;
@@ -742,12 +748,12 @@ async function loadTree(pathArg) {
     if (!pathArg) {
       $('#treeCrumb').textContent = 'NAS 최상위 (공유 폴더)';
       $('#treeUp').disabled = true; $('#treeLoad').disabled = true; $('#treeLoad').textContent = '이 폴더 이미지 불러오기';
-      dirsEl.innerHTML = (d.shares || []).map((s) => `<button class="tree-dir" data-path="${esc(s.path)}">📁 ${esc(s.name)}</button>`).join('') || '<span class="muted">공유 폴더 없음</span>';
+      dirsEl.innerHTML = (d.shares || []).map((s) => `<button class="tree-dir" data-path="${esc(s.path)}">${esc(s.name)}</button>`).join('') || '<span class="muted">공유 폴더 없음</span>';
     } else {
       $('#treeCrumb').textContent = pathArg;
       $('#treeUp').disabled = false; $('#treeLoad').disabled = false;
       $('#treeLoad').textContent = `이 폴더 이미지 불러오기${d.imageCount ? ` (${d.imageCount}장~)` : ''}`;
-      dirsEl.innerHTML = (d.dirs || []).map((x) => `<button class="tree-dir" data-path="${esc(x.path)}">📁 ${esc(x.name)}</button>`).join('') || '<span class="muted">하위 폴더 없음 — 아래 버튼으로 이미지를 불러오세요.</span>';
+      dirsEl.innerHTML = (d.dirs || []).map((x) => `<button class="tree-dir" data-path="${esc(x.path)}">${esc(x.name)}</button>`).join('') || '<span class="muted">하위 폴더 없음 — 아래 버튼으로 이미지를 불러오세요.</span>';
     }
     $$('#treeDirs .tree-dir').forEach((b) => b.onclick = () => loadTree(b.dataset.path));
   } catch (e) { dirsEl.innerHTML = '오류: ' + esc(e.message); }
@@ -790,7 +796,7 @@ function pollImageRec(jobId, banner, auto) {
     tries++;
     try {
       const s = await api('/api/images/job?id=' + jobId);
-      if (s.status === 'done' && s.picks) { clearInterval(t); recPicks = s.picks; banner.innerHTML = `✅ Claude 추천 ${s.picks.length}장 (초록 테두리). 마우스를 올리면 추천 이유가 보여요.`; renderGallery(); return; }
+      if (s.status === 'done' && s.picks) { clearInterval(t); recPicks = s.picks; banner.innerHTML = `Claude 추천 ${s.picks.length}장 (초록 테두리). 마우스를 올리면 추천 이유가 보여요.`; renderGallery(); return; }
       if (auto && tries === 60) showJobBanner(banner, '이미지 추천 요청 처리해줘', '자동 처리가 지연되네요. 이 문구를 입력하면 수동으로 처리돼요.');
     } catch (e) { clearInterval(t); banner.innerHTML = '오류: ' + esc(e.message); }
   }, 1500);
@@ -817,7 +823,7 @@ let pubQueue = [];
 let pubSel = null; // 편집 중인 항목 id
 const DOMAIN_LABEL = { common: '공통', domestic: '국내', overseas: '해외' };
 const MEDIA_LABEL = { off: '② 상품/쇼룸만(OFF)', normal: '① 이미지+상품/쇼룸(normal)', custom: '③ 이미지↔상품/쇼룸 매칭(custom)' };
-const PUB_STATUS = { draft: '초안', requested: '🕒 발행 대기', publishing: '⏳ 발행 중…', published: '✅ 발행됨', failed: '⚠ 실패' };
+const PUB_STATUS = { draft: '초안', requested: '발행 대기', publishing: '발행 중…', published: '발행됨', failed: '실패' };
 
 $$('input[name="pubFormat"]').forEach((r) => r.onchange = async () => {
   try { await api('/api/publish/format', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: r.value }) }); } catch {}
@@ -873,7 +879,7 @@ function renderPubEditor() {
     <div class="pf-row full"><label>아이템 (${isShowroom ? '쇼룸' : '상품'})</label>
       <div class="pf-items"><table class="pf-table"><thead><tr><th>${isShowroom ? '쇼룸명' : '상품명'}</th>${isCustom ? '<th>설명(≤14)</th>' : ''}<th></th></tr></thead>
         <tbody id="pf-item-rows">${(it.items || []).map((x, i) => pubItemRow(x, i, isCustom, isShowroom)).join('')}</tbody></table>
-        <div class="pf-item-add">${isShowroom ? '<button class="btn sm" id="pf-add-showroom">+ 쇼룸 추가</button>' : ''}${isCustom ? '<button class="btn sm" id="pf-gen-desc">✨ 설명 자동생성</button>' : ''}</div></div></div>
+        <div class="pf-item-add">${isShowroom ? '<button class="btn sm" id="pf-add-showroom">+ 쇼룸 추가</button>' : ''}${isCustom ? '<button class="btn sm" id="pf-gen-desc">설명 자동생성</button>' : ''}</div></div></div>
     <div class="pf-row full"><label>필터 키워드 <span class="muted sm">(없으면 신규로 등록)</span></label>
       <div class="pf-kw"><div id="pf-kw-list" class="chips"></div><div class="row gap"><input class="input sm" id="pf-kw-input" placeholder="키워드 입력 후 Enter" /><label class="muted sm"><input type="checkbox" id="pf-kw-new"/> 신규 등록</label></div></div></div>
     <div class="pf-row"><label>전시 순서 <span class="muted sm">(선택)</span></label><span class="row gap"><input class="input sm" id="pf-order" type="number" value="${it.displayOrder ?? ''}" placeholder="고정 위치 필요시" /><label class="muted sm"><input type="checkbox" id="pf-visible" ${it.displayVisible !== false ? 'checked' : ''}/> 노출</label></span></div>
@@ -949,8 +955,8 @@ async function pollPublishStatus(id) {
     let items; try { ({ items } = await api('/api/publish/queue')); } catch { return; }
     const x = items.find((y) => y.id === id); if (!x) { clearInterval(t); return; }
     pubQueue = items; renderPubList(); if (pubSel === id) renderPubEditor();
-    if (x.status === 'published') { clearInterval(t); alert('✅ 발행 완료! 백오피스에 등록됐습니다.'); }
-    else if (x.status === 'failed') { clearInterval(t); alert('⚠ 발행 실패: ' + (x.error || '알 수 없음')); }
+    if (x.status === 'published') { clearInterval(t); alert('발행 완료! 백오피스에 등록됐습니다.'); }
+    else if (x.status === 'failed') { clearInterval(t); alert('발행 실패: ' + (x.error || '알 수 없음')); }
     else if (tries > 90) { clearInterval(t); }
   }, 2000);
 }
@@ -963,9 +969,9 @@ async function genDescriptions(it) {
     const poll = setInterval(async () => {
       tries++; let j; try { j = await api('/api/publish/description/' + id); } catch { return; }
       if (j.status === 'done' && j.descriptions) { clearInterval(poll); (j.descriptions || []).forEach((d) => { if (it.items[d.i]) it.items[d.i].description = (d.description || '').slice(0, 14); }); renderPubEditor(); }
-      else if (tries > 120) { clearInterval(poll); if (gen) { gen.disabled = false; gen.textContent = '✨ 설명 자동생성'; } alert('생성이 지연됩니다. 잠시 후 다시 시도하세요.'); }
+      else if (tries > 120) { clearInterval(poll); if (gen) { gen.disabled = false; gen.textContent = '설명 자동생성'; } alert('생성이 지연됩니다. 잠시 후 다시 시도하세요.'); }
     }, 2000);
-  } catch (e) { if (gen) { gen.disabled = false; gen.textContent = '✨ 설명 자동생성'; } alert('실패: ' + e.message); }
+  } catch (e) { if (gen) { gen.disabled = false; gen.textContent = '설명 자동생성'; } alert('실패: ' + e.message); }
 }
 
 

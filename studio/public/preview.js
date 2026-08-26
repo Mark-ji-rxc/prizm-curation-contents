@@ -8,13 +8,14 @@
 
   function head(content) {
     const persona = content.persona || '호캉스 러버 MD';
-    const hotel = (content.matched && content.matched[0] && content.matched[0].hotel) || '';
+    const hotels = (content.hotels && content.hotels.length) ? content.hotels : [...new Set((content.matched || []).map((m) => m.hotel).filter(Boolean))];
+    const hotelLabel = hotels.length ? esc(hotels[0]) + (hotels.length > 1 ? ` 외 ${hotels.length - 1}개` : '') : '';
     const body = content.body || '';
-    const clip = body.length > 90 ? body.slice(0, 90) + '…' : body;
+    // 본문은 전체를 넣고 CSS로 8줄 클램프 → 초과 시 draw()에서 '더보기' 노출
     return `<div class="head"><div class="avatar"></div>
-        <div><div class="who">${esc(persona)} ${hotel ? '› ' + esc(hotel) : ''}</div>
+        <div class="head-t"><div class="who">${esc(persona)}${hotelLabel ? ' › ' + hotelLabel : ''}</div>
         <div class="ttl">${esc(content.title)}</div></div></div>
-      <div class="desc">${esc(clip)} ${body.length > 90 ? '<span class="more">더보기</span>' : ''}</div>`;
+      <div class="desc-wrap"><div class="desc">${esc(body)}</div><span class="more" hidden>더보기</span></div>`;
   }
   // 상품 카드(상품코드/ID 미표기 — 요청 반영)
   function goodsChip(m, cls) {
@@ -70,6 +71,10 @@
 
     const draw = () => {
       root.innerHTML = buildHtml(content, images, products, matches);
+      // 본문 8줄 초과 시에만 '더보기' 노출(초과 안 하면 그대로 전체 표시)
+      root.querySelectorAll('.desc').forEach((el) => {
+        if (el.scrollHeight > el.clientHeight + 2) { const more = el.parentElement.querySelector('.more'); if (more) more.hidden = false; }
+      });
       root.querySelectorAll('.me-sel').forEach((sel) => sel.onchange = () => {
         matches[sel.dataset.key] = sel.value;
         if (onChange) onChange(Object.assign({}, matches));

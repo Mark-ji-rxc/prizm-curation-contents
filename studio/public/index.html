@@ -63,9 +63,11 @@
       <button class="mtab" data-mode="brief">브리프(지시)로 생성</button>
       <button class="mtab" data-mode="match">내가 쓴 콘텐츠에 상품 매칭</button>
     </div>
-    <label class="web-check"><input type="checkbox" id="cWeb" /> 🔎 인터넷 검색으로 사실·아이디어 보강 <span class="muted sm">(품질↑, 속도는 느려짐)</span></label>
+    <label class="web-check"><input type="checkbox" id="cWeb" /> 인터넷 검색으로 사실·아이디어 보강 <span class="muted sm">(품질, 속도는 느려짐)</span></label>
 
-    <!-- 공통: 구분 / 지역 / 판매 조건 -->
+    <!-- ① 대상 상품 범위 (모든 모드 공통) -->
+    <div class="gen-group">
+    <div class="gen-group-h">대상 상품 범위 <span class="muted sm">— 어떤 상품에서 생성/매칭할지</span></div>
     <div class="form">
       <label>구분
         <select id="cScope"><option value="domestic">국내</option><option value="overseas">해외</option></select>
@@ -93,7 +95,7 @@
 
     <!-- 상품 직접 선택(두 모드 공통) -->
     <div class="picker-bar">
-      <button id="togglePicker" class="btn sm ghost">🧺 상품 직접 선택 (<span id="pickCount">0</span>)</button>
+      <button id="togglePicker" class="btn sm ghost">상품 직접 선택 (<span id="pickCount">0</span>)</button>
       <span class="muted sm">선택하면 그 상품들 안에서만 생성/매칭합니다. 비우면 위 조건 전체를 사용해요.</span>
     </div>
     <div id="pickerPanel" class="hidden">
@@ -107,9 +109,12 @@
       <div id="pkMeta" class="muted sm"></div>
       <div id="pickerList" class="pick-list"></div>
     </div>
+    </div><!-- /대상 상품 범위 -->
 
     <!-- generate 모드 전용 -->
     <div id="genFields">
+      <div class="gen-group">
+      <div class="gen-group-h">콘텐츠 생성 조건 <span class="muted sm">— 주제·형식·화자</span></div>
       <div class="form">
         <label>주제 개수
           <input id="cCount" class="input" type="number" min="1" max="20" value="5" />
@@ -128,8 +133,7 @@
       <label class="block">본문 형 (선택 · 여러 개 선택 가능)
         <div id="formChips" class="chips"></div>
       </label>
-      <div class="form">
-        <label class="grow">화자(선택)
+      <label class="block">화자(선택)
           <select id="cPersona" class="input">
             <option value="">자동</option>
             <optgroup label="① 후기·고백형">
@@ -176,8 +180,8 @@
             </optgroup>
           </select>
         </label>
-        <button id="genContent" class="btn primary">콘텐츠 생성</button>
-      </div>
+      </div><!-- /콘텐츠 생성 조건 -->
+      <div class="gen-actions"><button id="genContent" class="btn primary lg">콘텐츠 생성</button></div>
     </div>
 
     <!-- match 모드 전용 -->
@@ -201,13 +205,13 @@
       <div class="form">
         <label>개수 <input id="bCount" class="input" type="number" min="1" max="10" value="1" /></label>
         <button id="genBrief" class="btn primary">브리프로 콘텐츠 생성</button>
-        <span class="muted sm">현재 위의 구분·판매 조건·직접 선택 상품이 함께 적용됩니다. 🔎 검색을 켜면 사실을 확인해 더 정확·풍부하게 씁니다.</span>
+        <span class="muted sm">현재 위의 구분·판매 조건·직접 선택 상품이 함께 적용됩니다. 검색을 켜면 사실을 확인해 더 정확·풍부하게 씁니다.</span>
       </div>
     </div>
     <div id="contentJobBanner" class="banner hidden"></div>
     <div class="saved-bar">
-      <button id="toggleSaved" class="btn sm ghost">⭐ 저장된 콘텐츠 (<span id="savedCount">0</span>)</button>
-      <button id="analyzeSaved" class="btn sm">🧠 저장 콘텐츠 학습 분석</button>
+      <button id="toggleSaved" class="btn sm ghost">저장된 콘텐츠 (<span id="savedCount">0</span>)</button>
+      <button id="analyzeSaved" class="btn sm">저장 콘텐츠 학습 분석</button>
       <span class="muted sm">맘에 드는 콘텐츠를 저장해두면 나중에 바로 불러올 수 있어요. [학습 분석]은 저장 콘텐츠의 특징을 분석해 다음 생성 품질에 반영합니다.</span>
     </div>
     <div id="analyzeBanner" class="banner hidden"></div>
@@ -215,7 +219,7 @@
     <div id="savedList" class="cards hidden"></div>
 
     <div class="picker-bar">
-      <button id="toggleSchedule" class="btn sm ghost">⏰ 예약 생성 (<span id="scheduleCount">0</span>)</button>
+      <button id="toggleSchedule" class="btn sm ghost">예약 생성 (<span id="scheduleCount">0</span>)</button>
       <span class="muted sm">지정한 시간(예: 매주 월 03:00)에 자동으로 생성해 "저장된 콘텐츠"에 넣어둡니다. 프로그램이 켜져 있어야 실행돼요.</span>
     </div>
     <div id="schedulePanel" class="hidden">
@@ -236,13 +240,13 @@
     </div>
 
     <div class="picker-bar">
-      <button id="toggleRef" class="btn sm ghost">📚 모범 콘텐츠 (<span id="refCount">0</span>)</button>
+      <button id="toggleRef" class="btn sm ghost">모범 콘텐츠 (<span id="refCount">0</span>)</button>
       <span class="muted sm">실제 에디터가 쓴 우수 콘텐츠를 등록하면, 이후 생성 때 그 톤·구성·퀄리티를 참고(학습)해 더 좋은 결과를 냅니다.</span>
     </div>
     <div id="refPanel" class="hidden">
       <div class="row between" style="margin-bottom:8px">
         <span id="refCurInfo" class="muted sm"></span>
-        <button id="syncRef" class="btn sm">🔄 최신 모범 받기</button>
+        <button id="syncRef" class="btn sm">최신 모범 받기</button>
       </div>
       <div class="form">
         <label class="grow">제목 <input id="refTitle" class="input" placeholder="예시 콘텐츠 제목 (선택)" /></label>
@@ -270,8 +274,8 @@
     </div>
     <div class="expo-toggle">
       <b>노출 종류</b>
-      <label><input type="radio" name="expoType" value="goods" checked /> 🛍 상품</label>
-      <label><input type="radio" name="expoType" value="showroom" /> 🏨 쇼룸</label>
+      <label><input type="radio" name="expoType" value="goods" checked /> 상품</label>
+      <label><input type="radio" name="expoType" value="showroom" /> 쇼룸</label>
       <span class="muted sm">쇼룸 = 국내 호텔명 / 해외 지역명. 상품·쇼룸 중 하나를 노출합니다.</span>
     </div>
     <div id="productPick" class="pick-list"></div>
@@ -297,9 +301,9 @@
         <div class="row gap img-controls">
           <select id="imgHotelSelect" class="input"></select>
           <input id="imgFilter" class="input sm" placeholder="카테고리/파일명 필터(예: 라운지, 조식, 오션)" />
-          <label class="btn sm" for="imgUpload" title="내 이미지 업로드">⬆ 이미지 업로드</label>
+          <label class="btn sm" for="imgUpload" title="내 이미지 업로드">이미지 업로드</label>
           <input id="imgUpload" type="file" accept="image/*" multiple class="hidden" />
-          <button id="toggleTree" class="btn sm ghost">📁 NAS 폴더 직접 찾기</button>
+          <button id="toggleTree" class="btn sm ghost">NAS 폴더 직접 찾기</button>
           <span id="imgMeta" class="muted sm"></span>
         </div>
         <div id="treePanel" class="tree-panel hidden">
