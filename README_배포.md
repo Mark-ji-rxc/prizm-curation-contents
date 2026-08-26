@@ -67,6 +67,25 @@
 
 ---
 
+## ⑥ 자동 발행(백오피스 등록) 설정 — 선택
+`⑥ 등록` 단계에서 **[발행 실행]** 버튼만 누르면 스튜디오가 **헤드리스 브라우저(Playwright)로 백오피스 create 폼을 채우고 저장**까지 자동 처리합니다. (Claude 개입 없음) 쓰려면 각 PC에서 1회 설정:
+
+1. **Playwright 설치** (스튜디오 폴더에서)
+   ```bash
+   cd studio && npm i playwright && npx playwright install chromium
+   ```
+2. **백오피스 로그인 세션 저장** (비밀번호는 저장되지 않음 — 세션 쿠키만)
+   ```bash
+   node publish-login.js
+   ```
+   → 열리는 브라우저에서 백오피스에 **직접 로그인** → 창을 닫으면 세션이 `office-session.json`에 저장됩니다. (세션 만료 시 다시 실행)
+3. **`studio.config.json`** 에 office 섹션(백오피스 주소 등)이 필요하면 채웁니다. (stage↔실서버 전환은 이 주소만 교체)
+
+> 설정 안 하면 [발행 실행] 시 "Playwright 미설치/세션 없음" 안내가 뜹니다. 설정 후엔 버튼 → 상태가 `⏳ 발행 중…` → `✅ 발행됨`으로 바뀝니다.
+> ⚠️ 무인 자동발행이라 **잘못된 콘텐츠도 그대로 게시**될 수 있으니, 발행 전 미리보기로 확인하세요.
+
+---
+
 ## 담당자(큐레이터)만 할 수 있는 것
 - 잘 나온 콘텐츠를 **[📚 모범]** 으로 등록 → 자동으로 공유 저장소에 반영(push)
 - 담당자 명단은 `prizm-curation-editor/curators.json`(이메일 = 그 PC의 `git config user.email`)

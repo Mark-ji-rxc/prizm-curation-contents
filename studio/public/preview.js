@@ -30,7 +30,7 @@
     const media = images.length
       ? images.map((im) => `<div class="ph"><img src="${thumb(im.nasPath)}" alt="" /></div>`).join('')
       : '<div class="ph empty"></div>';
-    const card1 = `<div class="pv-wrap"><div class="pv-title">① 이미지 + 상품 등록 · 3:4 · 이미지 ${images.length}장(좌우 스와이프)</div>
+    const card1 = `<div class="pv-wrap"><div class="pv-title">① 이미지 + 상품/쇼룸 등록 · 3:4 · 이미지 ${images.length}장(좌우 스와이프)</div>
       <div class="feed">${H}<div class="media portrait">${media}</div>${goodsChip(products[0])}</div></div>`;
 
     // ② 이미지 없이 상품만 등록 — 상품 캐러셀
@@ -38,7 +38,7 @@
         <div class="gimg"></div>
         <div class="gbody"><div class="ghotel">${esc(m.hotel || '')}</div><div class="gname">${esc(m.productName || m.name || '상품')}</div>
         <div class="gprice">${m.discount ? esc(m.discount) + '% ' : ''}${won(m.price)}</div></div></div>`).join('');
-    const card2 = `<div class="pv-wrap"><div class="pv-title">② 이미지 없이 상품만 등록 · 상품 ${products.length}개</div>
+    const card2 = `<div class="pv-wrap"><div class="pv-title">② 이미지 없이 상품/쇼룸만 등록 · 상품/쇼룸 ${products.length}개</div>
       <div class="feed">${H}<div class="gcarousel">${gcards}</div></div></div>`;
 
     // ③ 이미지 + 상품 매칭 — 상품별 이미지 지정 + 매칭 슬라이드 스와이프
@@ -53,8 +53,8 @@
       const pic = im ? `<img src="${thumb(im.nasPath)}" alt="" />` : '<div class="stage-empty"></div>';
       return `<div class="stage">${pic}${goodsChip(m, 'overlay')}</div>`;
     }).join('');
-    const card3 = `<div class="pv-wrap"><div class="pv-title">③ 이미지 + 상품 매칭 · 상품별 이미지 지정(좌우 스와이프)</div>
-      <div class="match-editor">${editor || '<div class="muted sm">선택된 상품이 없어요.</div>'}</div>
+    const card3 = `<div class="pv-wrap"><div class="pv-title">③ 이미지 + 상품/쇼룸 매칭 · 아이템별 이미지 지정(좌우 스와이프)</div>
+      <div class="match-editor">${editor || '<div class="muted sm">선택된 상품/쇼룸이 없어요.</div>'}</div>
       <div class="feed">${H}<div class="stage-carousel">${stages}</div></div></div>`;
 
     return card1 + card2 + card3;

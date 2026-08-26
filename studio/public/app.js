@@ -12,13 +12,15 @@ let galleryImages = [];          // [{path, name, folder, mtime, hotel}]
 const selectedTiles = new Map(); // path -> imageObj
 let recPicks = null;             // [{file, nasPath, rank, reason}]
 const selectedProducts = new Map(); // productId -> matched item (③ 상품 선택)
+const selectedShowrooms = new Map(); // name -> {name,kind,code,hotel,region,products} (③ 쇼룸 선택)
+let exposureType = 'goods'; // 'goods'(상품 노출) | 'showroom'(쇼룸 노출)
 
 // ── 단계 네비 ────────────────────────────────────────────────────────────────
 function goStep(n) {
   $$('.step').forEach((b) => b.classList.toggle('active', b.dataset.step == n));
   $$('.panel').forEach((s) => s.classList.toggle('active', s.dataset.panel == n));
   if (n == 5) renderPreviews();
-  if (n == 6) dumpState();
+  if (n == 6) renderPublishStep();
 }
 $('#steps').addEventListener('click', (e) => { const b = e.target.closest('.step'); if (b) goStep(b.dataset.step); });
 function markDone(n) { const b = $(`.step[data-step="${n}"]`); if (b) b.classList.add('done'); }
@@ -292,7 +294,7 @@ function cardInner(it) {
 }
 function renderContentCards(items) {
   $('#contentCards').innerHTML = items.map((it, i) => `<div class="ccard" data-i="${i}">${cardInner(it)}
-    <div class="card-actions"><button class="btn primary pick">이 콘텐츠 선택<br>→ 상품 선택</button><button class="btn edit">✏️ 수정</button><button class="btn save">⭐ 저장</button><button class="btn ref">📚 모범</button></div></div>`).join('');
+    <div class="card-actions"><button class="btn primary pick">이 콘텐츠 선택<br>→ 상품/쇼룸 선택</button><button class="btn edit">✏️ 수정</button><button class="btn save">⭐ 저장</button><button class="btn ref">📚 모범</button></div></div>`).join('');
   $$('#contentCards .pick').forEach((btn, i) => btn.onclick = () => selectContent(items[i]));
   $$('#contentCards .save').forEach((btn, i) => btn.onclick = () => toggleSave(items[i], btn));
   $$('#contentCards .ref').forEach((btn, i) => btn.onclick = () => toggleRef(items[i], btn));
@@ -507,7 +509,7 @@ function renderSaved(items) {
     ? `<div class="bulk-recat"><span class="sm">미분류 ${items.length}편을 한 번에:</span><button class="btn sm" id="bulkDom">🏨 모두 국내 호텔로</button><button class="btn sm" id="bulkOvs">✈️ 모두 해외 여행상품으로</button></div>` : '';
   el.innerHTML = bulk + items.map((it) => `<div class="ccard" data-id="${esc(it.id)}"><div class="cat-badge cat-${it.category || 'unknown'}">${CAT_LABEL[it.category] || CAT_LABEL.unknown}</div>${cardInner(it)}
     ${(it.category || 'unknown') === 'unknown' ? `<div class="recat"><span class="muted sm">분류 지정:</span><button class="btn sm recat-dom">🏨 국내 호텔</button><button class="btn sm recat-ovs">✈️ 해외 여행상품</button></div>` : ''}
-    <div class="card-actions"><button class="btn primary pick">이 콘텐츠 선택<br>→ 상품 선택</button><button class="btn edit">✏️ 수정</button><button class="btn ref">📚 모범</button><button class="btn remove">삭제</button></div>
+    <div class="card-actions"><button class="btn primary pick">이 콘텐츠 선택<br>→ 상품/쇼룸 선택</button><button class="btn edit">✏️ 수정</button><button class="btn ref">📚 모범</button><button class="btn remove">삭제</button></div>
     <div class="muted sm" style="margin-top:6px">저장 ${new Date(it.savedAt).toLocaleString('ko-KR')}${it.fromSchedule ? ' · 예약 실행' : ''}</div></div>`).join('');
   $$('#savedList .pick').forEach((btn, i) => btn.onclick = () => selectContent(items[i]));
   $$('#savedList .ref').forEach((btn, i) => btn.onclick = () => toggleRef(items[i], btn));
@@ -534,16 +536,53 @@ function renderSaved(items) {
 async function selectContent(item) {
   selectedContent = item;
   await api('/api/content/select', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ item }) });
-  setupProductStep();
+  await setupProductStep();
   goStep(3);
 }
 
-// ── ③ 상품 선택 ──────────────────────────────────────────────────────────────
-function setupProductStep() {
-  selectedProducts.clear();
-  const matched = selectedContent.matched || [];
-  $('#prodStepHint').textContent = `콘텐츠 「${selectedContent.title}」 · 추천 상품 ${matched.length}개 중 넣을 상품을 선택 (미선택 시 전체 사용)`;
+// ── ③ 아이템 선택 (상품 / 쇼룸) ──────────────────────────────────────────────
+async function setupProductStep() {
+  selectedProducts.clear(); selectedShowrooms.clear();
+  exposureType = 'goods';
+  const g = document.querySelector('input[name="expoType"][value="goods"]'); if (g) g.checked = true;
   renderProductPick();
+  await loadShowroomCandidates(); renderShowroomPick();
+  setExposure('goods');
+}
+function updateProdHint() {
+  const c = selectedContent || {};
+  if (exposureType === 'showroom') $('#prodStepHint').textContent = `콘텐츠 「${c.title || ''}」 · 추천 쇼룸 중 노출할 쇼룸을 선택 (미선택 시 전체)`;
+  else $('#prodStepHint').textContent = `콘텐츠 「${c.title || ''}」 · 추천 상품 ${(c.matched || []).length}개 중 넣을 상품을 선택 (미선택 시 전체)`;
+}
+function setExposure(t) {
+  exposureType = t;
+  $('#productPick').classList.toggle('hidden', t !== 'goods');
+  $('#showroomPick').classList.toggle('hidden', t !== 'showroom');
+  updateProdHint();
+}
+$$('input[name="expoType"]').forEach((r) => r.onchange = () => setExposure(r.value));
+// 추천 쇼룸: 서버가 크롤 데이터와 대조해 도출한 "정확 명칭"(국내=호텔명, 해외=지역명)을 사용
+let showroomCands = [];
+async function loadShowroomCandidates() {
+  try { const { candidates } = await api('/api/content/showrooms'); showroomCands = candidates || []; }
+  catch { showroomCands = []; }
+}
+function showroomCandidates() { return showroomCands; }
+function renderShowroomPick() {
+  const cands = showroomCandidates();
+  $('#showroomPick').innerHTML = cands.map((s, i) => `
+    <div class="pick-row ${selectedShowrooms.has(s.name) ? 'sel' : ''}">
+      <label class="pick-check"><input type="checkbox" ${selectedShowrooms.has(s.name) ? 'checked' : ''} data-i="${i}" /></label>
+      <div class="pick-main">
+        <div class="pick-name">${esc(s.name)} ${s.exact === false ? '<span class="badge warn" title="크롤 데이터에서 명칭을 못 찾았어요. 등록 전 확인 필요">⚠ 확인필요</span>' : '<span class="badge ok" title="크롤에서 확정된 명칭 · 등록 시 백오피스 쇼룸과 최종 매칭(명칭이 다르면 선택 요청)">크롤명 확정</span>'}</div>
+        <div class="pick-sub">${s.kind === 'region' ? '지역(해외)' : '호텔(국내)'} · 연결 상품 ${s.products.length}개</div>
+      </div>
+    </div>`).join('') || '<div class="muted">추천 쇼룸이 없습니다. (콘텐츠에 매칭 호텔/지역이 없어요)</div>';
+  $$('#showroomPick input[type=checkbox]').forEach((cb) => cb.onchange = () => {
+    const s = cands[+cb.dataset.i];
+    if (cb.checked) selectedShowrooms.set(s.name, s); else selectedShowrooms.delete(s.name);
+    cb.closest('.pick-row').classList.toggle('sel', cb.checked);
+  });
 }
 function renderProductPick() {
   const matched = selectedContent.matched || [];
@@ -568,14 +607,27 @@ async function fetchAndShowProduct(id) {
   catch (e) { alert('상품 정보를 불러오지 못했어요: ' + e.message); }
 }
 $('#prodSelectAll').onclick = () => {
-  const matched = selectedContent.matched || [];
-  if (selectedProducts.size === matched.length) selectedProducts.clear();
-  else matched.forEach((m) => selectedProducts.set(m.productId, m));
-  renderProductPick();
+  if (exposureType === 'showroom') {
+    const cands = showroomCandidates();
+    if (selectedShowrooms.size === cands.length) selectedShowrooms.clear();
+    else cands.forEach((s) => selectedShowrooms.set(s.name, s));
+    renderShowroomPick();
+  } else {
+    const matched = selectedContent.matched || [];
+    if (selectedProducts.size === matched.length) selectedProducts.clear();
+    else matched.forEach((m) => selectedProducts.set(m.productId, m));
+    renderProductPick();
+  }
 };
 $('#confirmProducts').onclick = async () => {
-  const chosen = selectedProducts.size ? [...selectedProducts.values()] : (selectedContent.matched || []);
-  await api('/api/content/products', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ products: chosen }) });
+  if (exposureType === 'showroom') {
+    const chosen = selectedShowrooms.size ? [...selectedShowrooms.values()] : showroomCandidates();
+    if (!chosen.length) return alert('추천 쇼룸이 없습니다.');
+    await api('/api/content/exposure', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ exposureType: 'showroom', showrooms: chosen }) });
+  } else {
+    const chosen = selectedProducts.size ? [...selectedProducts.values()] : (selectedContent.matched || []);
+    await api('/api/content/exposure', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ exposureType: 'goods', products: chosen }) });
+  }
   markDone(3);
   setupImageStep();
   goStep(4);
@@ -583,9 +635,13 @@ $('#confirmProducts').onclick = async () => {
 
 // ── ③ 이미지 찾기 ────────────────────────────────────────────────────────────
 function setupImageStep() {
-  const src = selectedProducts.size ? [...selectedProducts.values()] : (selectedContent.matched || []);
+  selectedTiles.clear(); // 새 콘텐츠로 진입 시 선택 초기화(폴더 전환에는 유지)
+  // 노출 종류에 맞춰 이미지 대상 구성(쇼룸 노출이면 쇼룸명, 대표 상품코드로 이미지 해석 재사용)
+  const src = exposureType === 'showroom'
+    ? (selectedShowrooms.size ? [...selectedShowrooms.values()] : showroomCandidates()).map((s) => ({ productName: s.name, name: s.name, hotel: s.kind === 'hotel' ? s.name : (s.hotel || s.name), region: s.kind === 'region' ? s.name : s.region, productCode: s.code, productId: s.code, price: '', isShowroom: true }))
+    : (selectedProducts.size ? [...selectedProducts.values()] : (selectedContent.matched || []));
   const hotels = [...new Set(src.map((m) => m.hotel).filter(Boolean))];
-  $('#imgHotelHint').textContent = selectedContent ? `선택 상품 호텔/여행지 ${hotels.length}곳에서 이미지를 찾습니다.` : '';
+  $('#imgHotelHint').textContent = selectedContent ? `선택 ${exposureType === 'showroom' ? '쇼룸' : '상품'} ${hotels.length}곳에서 이미지를 찾습니다.` : '';
   const body = selectedContent.body || '';
   $('#imgSide').innerHTML = `
     <div class="side-block">
@@ -594,7 +650,7 @@ function setupImageStep() {
       <div class="side-body">${esc(body)}</div>
     </div>
     <div class="side-block">
-      <div class="side-h">선택 상품 (${src.length})</div>
+      <div class="side-h">선택 ${exposureType === 'showroom' ? '쇼룸' : '상품'} (${src.length})</div>
       <ul class="side-products">${src.map((m) => `<li><div class="sp-name">${esc(m.productName || m.name)}</div><div class="sp-sub">${esc(m.hotel)} · ${won(m.price)}${m.productId ? ' · ID ' + esc(m.productId) : ''}</div></li>`).join('')}</ul>
     </div>`;
   // 상품 유형에 맞게 해석하도록 타깃(대표 상품코드)별로 구성 — 호텔/여행지 단위 중복 제거
@@ -627,7 +683,7 @@ $('#imgUpload').onchange = async (e) => {
 };
 function loadTarget(i) { currentTarget = imgTargets[i]; if (currentTarget) loadImages(currentTarget); }
 async function loadImages(target) {
-  const meta = $('#imgMeta'); meta.textContent = '불러오는 중…'; recPicks = null; selectedTiles.clear();
+  const meta = $('#imgMeta'); meta.textContent = '불러오는 중…'; recPicks = null; // 선택 이미지는 폴더 전환에도 유지
   const hotel = target.hotel || target;
   try {
     const qs = target.code ? `productCode=${encodeURIComponent(target.code)}&hotel=${encodeURIComponent(hotel)}` : `hotel=${encodeURIComponent(hotel)}`;
@@ -655,11 +711,25 @@ function renderGallery() {
     </div>`;
   }).join('') || '<div class="muted">이미지가 없습니다.</div>';
   $$('#gallery .tile').forEach((t) => {
-    t.onclick = () => { const path = t.dataset.path; if (selectedTiles.has(path)) selectedTiles.delete(path); else selectedTiles.set(path, allImages().find((im) => im.path === path)); t.classList.toggle('sel'); };
+    t.onclick = () => { const path = t.dataset.path; if (selectedTiles.has(path)) selectedTiles.delete(path); else selectedTiles.set(path, allImages().find((im) => im.path === path)); t.classList.toggle('sel'); renderSelectedStrip(); };
     t.querySelector('img').ondblclick = (e) => { e.stopPropagation(); openLightbox(t.dataset.path); };
   });
+  renderSelectedStrip();
 }
 function allImages() { return [...uploadedImages, ...galleryImages]; }
+// 선택한 이미지 모아보기(폴더/호텔 전환에도 유지 — 유저가 전체 선택 현황 확인)
+function renderSelectedStrip() {
+  const el = $('#selectedStrip'); if (!el) return;
+  const items = [...selectedTiles.values()].filter(Boolean);
+  if (!items.length) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+  el.classList.remove('hidden');
+  el.innerHTML = `<div class="sel-head"><b>🖼 선택한 이미지 (${items.length})</b><button class="btn xs" id="selClear">전체 해제</button></div>
+    <div class="sel-thumbs">${items.map((im) => `<div class="sel-thumb" data-path="${esc(im.path)}" title="${esc((im.hotel || '') + ' · ' + (im.folder || ''))}">
+      <img loading="lazy" src="/api/thumb?path=${encodeURIComponent(im.path)}&size=small&mtime=${encodeURIComponent(im.mtime || '')}" alt="" />
+      <span class="sel-x">✕</span></div>`).join('')}</div>`;
+  $('#selClear').onclick = () => { selectedTiles.clear(); renderGallery(); };
+  $$('#selectedStrip .sel-thumb').forEach((d) => d.querySelector('.sel-x').onclick = () => { selectedTiles.delete(d.dataset.path); renderGallery(); });
+}
 
 // ── NAS 폴더 직접 찾기 ────────────────────────────────────────────────────────
 let treePath = null; // null = 최상위 공유목록
@@ -685,7 +755,7 @@ async function loadTree(pathArg) {
 $('#treeUp').onclick = () => { if (!treePath) return; loadTree(treePath.replace(/\/[^/]+$/, '') || null); };
 $('#treeLoad').onclick = async () => {
   if (!treePath) return;
-  const meta = $('#imgMeta'); meta.textContent = '폴더 이미지 불러오는 중…'; recPicks = null; selectedTiles.clear();
+  const meta = $('#imgMeta'); meta.textContent = '폴더 이미지 불러오는 중…'; recPicks = null; // 선택 이미지 유지
   try {
     const d = await api('/api/list-images?path=' + encodeURIComponent(treePath));
     const leaf = treePath.split('/').slice(-1)[0];
@@ -742,8 +812,162 @@ async function saveMatches(matches) {
   try { await api('/api/content/matches', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ matches }) }); } catch {}
 }
 
-// ── ⑤ 상태 ───────────────────────────────────────────────────────────────────
-async function dumpState() { try { const s = await api('/api/state'); $('#stateDump').textContent = JSON.stringify(s.state, null, 2); } catch {} }
+// ── ⑥ 발행(등록) ─────────────────────────────────────────────────────────────
+let pubQueue = [];
+let pubSel = null; // 편집 중인 항목 id
+const DOMAIN_LABEL = { common: '공통', domestic: '국내', overseas: '해외' };
+const MEDIA_LABEL = { off: '② 상품/쇼룸만(OFF)', normal: '① 이미지+상품/쇼룸(normal)', custom: '③ 이미지↔상품/쇼룸 매칭(custom)' };
+const PUB_STATUS = { draft: '초안', requested: '🕒 발행 대기', publishing: '⏳ 발행 중…', published: '✅ 발행됨', failed: '⚠ 실패' };
+
+$$('input[name="pubFormat"]').forEach((r) => r.onchange = async () => {
+  try { await api('/api/publish/format', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: r.value }) }); } catch {}
+});
+$('#toPublish').onclick = async () => {
+  const chosen = document.querySelector('input[name="pubFormat"]:checked');
+  if (!chosen) return alert('발행 형태(①/②/③)를 선택하세요.');
+  try { await api('/api/publish/format', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: chosen.value }) }); } catch {}
+  await addCurrentToQueue(); goStep(6);
+};
+$('#pubAddCurrent').onclick = () => addCurrentToQueue();
+
+async function addCurrentToQueue() {
+  try {
+    const { draft } = await api('/api/publish/draft');
+    const { id } = await api('/api/publish/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ item: draft }) });
+    await loadPubQueue(); pubSel = id; renderPubList(); renderPubEditor();
+  } catch (e) { alert('추가 실패: ' + e.message); }
+}
+async function loadPubQueue() { const { items } = await api('/api/publish/queue'); pubQueue = items; $('#pubCount').textContent = items.length; }
+async function renderPublishStep() { try { await loadPubQueue(); } catch {} if (!pubCurrent() && pubQueue[0]) pubSel = pubQueue[0].id; renderPubList(); renderPubEditor(); }
+function pubCurrent() { return pubQueue.find((x) => x.id === pubSel); }
+
+function renderPubList() {
+  const el = $('#pubList');
+  if (!pubQueue.length) { el.innerHTML = '<div class="muted sm">대기 항목이 없어요. 미리보기에서 형태를 골라 추가하세요.</div>'; return; }
+  el.innerHTML = pubQueue.map((it) => `<div class="pub-item ${it.id === pubSel ? 'sel' : ''}" data-id="${esc(it.id)}">
+    <div class="pub-item-t">${esc((it.content && it.content.title) || '(제목 없음)')}</div>
+    <div class="pub-item-m"><span class="badge ${it.status === 'published' ? 'ok' : it.status === 'requested' ? 'warn' : ''}">${PUB_STATUS[it.status] || '초안'}</span> <span class="badge">${DOMAIN_LABEL[it.domain] || it.domain}</span> <span class="badge">${MEDIA_LABEL[it.mediaMode] || it.mediaMode}</span></div></div>`).join('');
+  $$('#pubList .pub-item').forEach((d) => d.onclick = () => { pubSel = d.dataset.id; renderPubList(); renderPubEditor(); });
+}
+
+function pubItemRow(x, i, isCustom, isShowroom) {
+  // 노출 종류에 따라 이름 셀을 하나만: 쇼룸 노출=쇼룸명(수정 가능), 상품 노출=상품명(고정)
+  const nameCell = isShowroom
+    ? `<td><input class="input xs pf-sr" value="${esc(x.showroomName || '')}" placeholder="쇼룸명" /></td>`
+    : `<td>${esc(x.productName || '')}${x.productId ? ` <span class="muted sm">${esc(x.productId)}</span>` : ''}</td>`;
+  return `<tr data-i="${i}">${nameCell}${isCustom ? `<td><input class="input xs pf-desc" maxlength="14" value="${esc(x.description || '')}" placeholder="≤14자" /></td>` : ''}<td><button class="btn xs pf-item-del">✕</button></td></tr>`;
+}
+
+function renderPubEditor() {
+  const it = pubCurrent(); const el = $('#pubEditor');
+  if (!it) { el.innerHTML = '<div class="muted">왼쪽에서 항목을 선택하거나, 미리보기에서 형태를 골라 추가하세요.</div>'; return; }
+  const c = it.content || {}; const isCustom = it.mediaMode === 'custom'; const isOff = it.mediaMode === 'off';
+  const isShowroom = it.exposure === 'showroom'; // 노출 종류: 쇼룸이면 쇼룸명만, 상품이면 상품명만
+  el.innerHTML = `<div class="pub-form">
+    <div class="pf-row"><label>발행 도메인</label><div class="pf-radios">
+      ${['common', 'domestic', 'overseas'].map((d) => `<label><input type="radio" name="pf-domain" value="${d}" ${it.domain === d ? 'checked' : ''}/> ${DOMAIN_LABEL[d]}</label>`).join('')}</div></div>
+    <div class="pf-row"><label>발행 주체(쇼룸)</label><input class="input" id="pf-showroom" value="${esc(it.publisherShowroom || '')}" placeholder="국내=체크인 / 해외=인트립 / 공통=직접 입력" /></div>
+    <div class="pf-row"><label>제목 <span class="muted sm">(≤24)</span></label><input class="input" id="pf-title" maxlength="24" value="${esc(c.title || '')}" /><span class="muted sm" id="pf-title-c">${(c.title || '').length}/24</span></div>
+    <div class="pf-row"><label>내용</label><textarea class="input" id="pf-body" rows="4">${esc(c.body || '')}</textarea></div>
+    <div class="pf-row"><label>미디어</label><div><span class="badge">${MEDIA_LABEL[it.mediaMode] || it.mediaMode}</span> <span class="muted sm">${isOff ? '이미지 없이 상품/쇼룸만' : '이미지 ' + ((it.images || []).length) + '장'}</span></div></div>
+    <div class="pf-row full"><label>아이템 (${isShowroom ? '쇼룸' : '상품'})</label>
+      <div class="pf-items"><table class="pf-table"><thead><tr><th>${isShowroom ? '쇼룸명' : '상품명'}</th>${isCustom ? '<th>설명(≤14)</th>' : ''}<th></th></tr></thead>
+        <tbody id="pf-item-rows">${(it.items || []).map((x, i) => pubItemRow(x, i, isCustom, isShowroom)).join('')}</tbody></table>
+        <div class="pf-item-add">${isShowroom ? '<button class="btn sm" id="pf-add-showroom">+ 쇼룸 추가</button>' : ''}${isCustom ? '<button class="btn sm" id="pf-gen-desc">✨ 설명 자동생성</button>' : ''}</div></div></div>
+    <div class="pf-row full"><label>필터 키워드 <span class="muted sm">(없으면 신규로 등록)</span></label>
+      <div class="pf-kw"><div id="pf-kw-list" class="chips"></div><div class="row gap"><input class="input sm" id="pf-kw-input" placeholder="키워드 입력 후 Enter" /><label class="muted sm"><input type="checkbox" id="pf-kw-new"/> 신규 등록</label></div></div></div>
+    <div class="pf-row"><label>전시 순서 <span class="muted sm">(선택)</span></label><span class="row gap"><input class="input sm" id="pf-order" type="number" value="${it.displayOrder ?? ''}" placeholder="고정 위치 필요시" /><label class="muted sm"><input type="checkbox" id="pf-visible" ${it.displayVisible !== false ? 'checked' : ''}/> 노출</label></span></div>
+    <div class="pf-row"><label>전시 기간 <span class="muted sm">(필수)</span></label>
+      <span class="row gap"><input class="input sm" id="pf-start" type="datetime-local" value="${esc((it.displayPeriod && it.displayPeriod.start) || '')}" /> ~ <input class="input sm" id="pf-end" type="datetime-local" value="${esc((it.displayPeriod && it.displayPeriod.end) || '')}" ${it.displayPeriod && it.displayPeriod.unlimited ? 'disabled' : ''}/><label class="muted sm"><input type="checkbox" id="pf-unlimited" ${it.displayPeriod && it.displayPeriod.unlimited ? 'checked' : ''}/> 무기한</label></span></div>
+    <div class="pf-actions"><button class="btn primary" id="pf-save">저장</button><button class="btn" id="pf-publish">발행 실행 (Phase 2)</button><button class="btn danger" id="pf-del">삭제</button></div>
+  </div>`;
+  wirePubEditor(it);
+}
+
+function collectItems(it) {
+  return $$('#pf-item-rows tr').map((tr, i) => { const base = (it.items && it.items[i]) || { kind: 'showroom' }; const sr = tr.querySelector('.pf-sr'); const d = tr.querySelector('.pf-desc'); return { ...base, showroomName: sr ? sr.value : base.showroomName, description: d ? d.value : (base.description || '') }; });
+}
+function renderKw(it) {
+  const el = $('#pf-kw-list'); if (!el) return; const kws = it.filterKeywords || [];
+  el.innerHTML = kws.map((k, i) => `<span class="chip">${esc(k.name)}${k.isNew ? ' <span class="muted sm">(신규)</span>' : ''} <b class="kw-x" data-i="${i}">✕</b></span>`).join('') || '<span class="muted sm">없음</span>';
+  $$('#pf-kw-list .kw-x').forEach((b) => b.onclick = () => { it.filterKeywords.splice(+b.dataset.i, 1); renderKw(it); });
+}
+function wirePubEditor(it) {
+  const t = $('#pf-title'); if (t) t.oninput = () => { $('#pf-title-c').textContent = t.value.length + '/24'; };
+  const un = $('#pf-unlimited'); if (un) un.onchange = () => { const e = $('#pf-end'); if (e) e.disabled = un.checked; };
+  const addSr = $('#pf-add-showroom'); if (addSr) addSr.onclick = () => { it.items = collectItems(it); it.items.push({ kind: 'showroom', showroomName: '', description: '' }); renderPubEditor(); };
+  $$('#pf-item-rows .pf-item-del').forEach((b) => b.onclick = () => { const i = +b.closest('tr').dataset.i; it.items = collectItems(it); it.items.splice(i, 1); renderPubEditor(); });
+  const gen = $('#pf-gen-desc'); if (gen) gen.onclick = () => genDescriptions(it);
+  renderKw(it);
+  const kwIn = $('#pf-kw-input'); if (kwIn) kwIn.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); const v = kwIn.value.trim(); if (v) { it.filterKeywords = it.filterKeywords || []; it.filterKeywords.push({ name: v, isNew: $('#pf-kw-new').checked }); kwIn.value = ''; renderKw(it); } } };
+  $('#pf-save').onclick = () => savePubItem(it);
+  $('#pf-publish').onclick = () => runPublish(it);
+  $('#pf-del').onclick = async () => { if (!confirm('대기목록에서 삭제할까요?')) return; await api('/api/publish/queue?id=' + encodeURIComponent(it.id), { method: 'DELETE' }); pubSel = null; await loadPubQueue(); if (pubQueue[0]) pubSel = pubQueue[0].id; renderPubList(); renderPubEditor(); };
+}
+function collectPubItem(it) {
+  it.domain = (document.querySelector('input[name="pf-domain"]:checked') || {}).value || it.domain;
+  it.publisherShowroom = $('#pf-showroom').value.trim();
+  it.content = it.content || {}; it.content.title = $('#pf-title').value.trim(); it.content.body = $('#pf-body').value;
+  it.items = collectItems(it);
+  it.displayOrder = $('#pf-order').value === '' ? null : Number($('#pf-order').value);
+  it.displayVisible = $('#pf-visible').checked;
+  it.displayPeriod = { start: $('#pf-start').value, end: $('#pf-end').value, unlimited: $('#pf-unlimited').checked };
+  return it;
+}
+async function savePubItem(it) {
+  collectPubItem(it);
+  if (!it.content.title && !it.content.body) return alert('제목 또는 내용 중 1개는 필요합니다.');
+  if (!it.publisherShowroom) return alert('발행 주체(쇼룸)를 입력하세요.');
+  if (!it.displayPeriod.start) return alert('전시 시작일시는 필수입니다.');
+  if (!it.displayPeriod.unlimited && !it.displayPeriod.end) return alert('전시 종료일시를 입력하거나 무기한을 선택하세요.');
+  try { await api('/api/publish/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ item: it }) }); await loadPubQueue(); renderPubList(); alert('저장했습니다.'); } catch (e) { alert('저장 실패: ' + e.message); }
+}
+// 발행 실행 — 버튼만 누르면 스튜디오가 헤드리스(Playwright)로 백오피스에 직접 등록.
+async function runPublish(it) {
+  collectPubItem(it);
+  if (!it.content.title && !it.content.body) return alert('제목 또는 내용 중 1개는 필요합니다.');
+  if (!it.publisherShowroom) return alert('발행 주체(쇼룸)를 입력하세요.');
+  if (!it.displayPeriod.start) return alert('전시 시작일시는 필수입니다.');
+  if (!it.displayPeriod.unlimited && !it.displayPeriod.end) return alert('전시 종료일시를 입력하거나 무기한을 선택하세요.');
+  if (!(it.items || []).length) return alert('노출할 상품/쇼룸 아이템이 없습니다.');
+  // 발행 환경 점검
+  let office = {}; try { office = await api('/api/publish/office-status'); } catch {}
+  if (!office.playwrightOk) return alert('Playwright가 설치되지 않았습니다.\n터미널에서:\n  npm i playwright && npx playwright install chromium');
+  if (!office.sessionOk) return alert('백오피스 로그인 세션이 없습니다.\n터미널에서 한 번만:\n  node publish-login.js\n(브라우저가 열리면 로그인 후 Enter → 세션 저장)');
+  if (!confirm('이 콘텐츠를 실제 백오피스에 지금 등록할까요?\n' + (office.baseUrl || ''))) return;
+  try {
+    await api('/api/publish/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ item: it }) });
+    await api('/api/publish/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: it.id }) });
+    await loadPubQueue(); renderPubList(); renderPubEditor();
+    pollPublishStatus(it.id); // 진행 상태 폴링
+  } catch (e) { alert('발행 실패: ' + e.message); }
+}
+async function pollPublishStatus(id) {
+  let tries = 0;
+  const t = setInterval(async () => {
+    tries++;
+    let items; try { ({ items } = await api('/api/publish/queue')); } catch { return; }
+    const x = items.find((y) => y.id === id); if (!x) { clearInterval(t); return; }
+    pubQueue = items; renderPubList(); if (pubSel === id) renderPubEditor();
+    if (x.status === 'published') { clearInterval(t); alert('✅ 발행 완료! 백오피스에 등록됐습니다.'); }
+    else if (x.status === 'failed') { clearInterval(t); alert('⚠ 발행 실패: ' + (x.error || '알 수 없음')); }
+    else if (tries > 90) { clearInterval(t); }
+  }, 2000);
+}
+async function genDescriptions(it) {
+  it.items = collectItems(it);
+  const gen = $('#pf-gen-desc'); if (gen) { gen.disabled = true; gen.textContent = '생성 중…'; }
+  try {
+    const { id } = await api('/api/publish/description', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ items: it.items }) });
+    let tries = 0;
+    const poll = setInterval(async () => {
+      tries++; let j; try { j = await api('/api/publish/description/' + id); } catch { return; }
+      if (j.status === 'done' && j.descriptions) { clearInterval(poll); (j.descriptions || []).forEach((d) => { if (it.items[d.i]) it.items[d.i].description = (d.description || '').slice(0, 14); }); renderPubEditor(); }
+      else if (tries > 120) { clearInterval(poll); if (gen) { gen.disabled = false; gen.textContent = '✨ 설명 자동생성'; } alert('생성이 지연됩니다. 잠시 후 다시 시도하세요.'); }
+    }, 2000);
+  } catch (e) { if (gen) { gen.disabled = false; gen.textContent = '✨ 설명 자동생성'; } alert('실패: ' + e.message); }
+}
+
 
 // ── 초기화 ───────────────────────────────────────────────────────────────────
 (async function init() {

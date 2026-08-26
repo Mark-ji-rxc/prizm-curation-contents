@@ -13,6 +13,10 @@ studio/saved-contents.json
 studio/saved-insights.json
 studio/저장콘텐츠_학습분석.md
 studio/state.json
+studio/publish-queue.json
+studio/publish-staging/
+studio/showroom-map.json
+studio/office-session.json
 studio/.backups/
 studio/jobs/
 studio/uploads/

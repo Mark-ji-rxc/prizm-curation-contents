@@ -12,7 +12,7 @@
   <nav class="steps" id="steps">
     <button class="step active" data-step="1"><b>1</b> 상품 불러오기</button>
     <button class="step" data-step="2"><b>2</b> 콘텐츠 생성</button>
-    <button class="step" data-step="3"><b>3</b> 상품 선택</button>
+    <button class="step" data-step="3"><b>3</b> 상품/쇼룸 선택</button>
     <button class="step" data-step="4"><b>4</b> 이미지 찾기</button>
     <button class="step" data-step="5"><b>5</b> 미리보기</button>
     <button class="step" data-step="6"><b>6</b> 등록</button>
@@ -256,19 +256,26 @@
     <div id="contentCards" class="cards"></div>
   </section>
 
-  <!-- ③ 상품 선택 -->
+  <!-- ③ 상품/쇼룸 선택 -->
   <section class="panel" data-panel="3">
     <div class="row between">
       <div>
-        <h2>상품 선택</h2>
-        <p class="muted" id="prodStepHint">추천된 상품 중 콘텐츠에 넣을 상품을 선택하세요. [자세히]로 상세 정보를 볼 수 있어요.</p>
+        <h2>아이템 선택 (상품 / 쇼룸)</h2>
+        <p class="muted" id="prodStepHint">최종 게시물에 노출할 종류를 먼저 고르고, 해당하는 상품/쇼룸을 선택하세요.</p>
       </div>
       <div class="btns">
         <button id="prodSelectAll" class="btn ghost">전체 선택/해제</button>
-        <button id="confirmProducts" class="btn primary">상품 선택 완료 → 이미지 찾기</button>
+        <button id="confirmProducts" class="btn primary">선택 완료 → 이미지 찾기</button>
       </div>
     </div>
+    <div class="expo-toggle">
+      <b>노출 종류</b>
+      <label><input type="radio" name="expoType" value="goods" checked /> 🛍 상품</label>
+      <label><input type="radio" name="expoType" value="showroom" /> 🏨 쇼룸</label>
+      <span class="muted sm">쇼룸 = 국내 호텔명 / 해외 지역명. 상품·쇼룸 중 하나를 노출합니다.</span>
+    </div>
     <div id="productPick" class="pick-list"></div>
+    <div id="showroomPick" class="pick-list hidden"></div>
   </section>
 
   <!-- ④ 이미지 찾기 -->
@@ -304,6 +311,7 @@
           <div id="treeDirs" class="tree-dirs"></div>
         </div>
         <div id="imgRecBanner" class="banner hidden"></div>
+        <div id="selectedStrip" class="selected-strip hidden"></div>
         <div id="gallery" class="gallery"></div>
       </div>
     </div>
@@ -314,14 +322,31 @@
     <h2>미리보기</h2>
     <p class="muted">등록 시 노출 형태 3종. 첨부 이미지 비율에 따라 세로형/가로형이 자동 적용됩니다.</p>
     <div id="previewArea" class="previews"></div>
+    <div class="publish-pick">
+      <b>발행 형태 선택</b> <span class="muted sm">— 어떤 형태로 백오피스에 등록할지 고릅니다.</span>
+      <div class="pub-format-opts">
+        <label><input type="radio" name="pubFormat" value="normal" /> ① 이미지+상품/쇼룸 <span class="muted sm">(미디어 ON · normal)</span></label>
+        <label><input type="radio" name="pubFormat" value="off" /> ② 상품/쇼룸만 <span class="muted sm">(미디어 OFF)</span></label>
+        <label><input type="radio" name="pubFormat" value="custom" /> ③ 이미지↔상품/쇼룸 매칭 <span class="muted sm">(미디어 ON · custom)</span></label>
+      </div>
+      <button id="toPublish" class="btn primary">이 콘텐츠를 발행 대기목록에 추가 →</button>
+    </div>
   </section>
 
-  <!-- ⑥ 등록 -->
+  <!-- ⑥ 등록(발행) -->
   <section class="panel" data-panel="6">
-    <h2>콘텐츠 등록</h2>
-    <p class="muted">차후 진행 예정 — API 없이 Claude가 웹(오피스)에 이미지까지 등록하도록 세팅합니다.</p>
-    <div class="banner">🚧 준비 중입니다. 컨펌된 콘텐츠·이미지는 <code>state.json</code>에 저장되어 있어, 등록 단계에서 그대로 사용합니다.</div>
-    <pre id="stateDump" class="log"></pre>
+    <div class="row between">
+      <div><h2>콘텐츠 등록 (발행)</h2>
+      <p class="muted">여러 콘텐츠를 발행 설정까지 준비해 대기목록에 쌓고, 선택한 콘텐츠를 실제 백오피스에 등록합니다. (실제 등록 자동화는 Phase 2)</p></div>
+      <button id="pubAddCurrent" class="btn sm">+ 현재 콘텐츠 추가</button>
+    </div>
+    <div class="publish-layout">
+      <aside class="pub-queue">
+        <div class="pub-queue-h">발행 대기목록 (<span id="pubCount">0</span>)</div>
+        <div id="pubList"></div>
+      </aside>
+      <div class="pub-editor" id="pubEditor"><div class="muted">왼쪽 대기목록에서 항목을 선택하거나, 미리보기에서 형태를 골라 추가하세요.</div></div>
+    </div>
   </section>
 </main>
 

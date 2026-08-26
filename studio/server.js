@@ -224,6 +224,108 @@ function saveState(s) {
 }
 let state = loadState();
 
+// ── ⑥ 발행 큐(여러 콘텐츠를 발행 설정까지 준비해 대기, 그중 선택 등록) ──────────
+const PUBLISH_QUEUE_FILE = path.join(DIR, 'publish-queue.json');
+function loadPublishQueue() { const a = loadJson(PUBLISH_QUEUE_FILE); return Array.isArray(a) ? a : []; }
+function savePublishQueue(a) { try { fs.writeFileSync(PUBLISH_QUEUE_FILE, JSON.stringify(a, null, 2)); } catch (e) { console.error('[pubqueue]', e.message); } return a; }
+const pubId = () => 'pub-' + Date.now().toString(36) + '-' + crypto.randomBytes(2).toString('hex');
+// 현재 단계 상태(선택 콘텐츠·상품·이미지·미리보기 형태)로 발행 초안 1건 구성
+function buildPublishDraft() {
+  const c = state.selectedContent;
+  if (!c) return null;
+  const products = (state.selectedProducts && state.selectedProducts.length) ? state.selectedProducts : (c.matched || []);
+  const cat = c.category || (function () { // 콘텐츠 분류 → 발행 도메인 자동추천
+    const idx = buildDomOvsIndex(); return categoryOf({ matched: products }, idx);
+  })();
+  const domain = cat === 'domestic' ? 'domestic' : cat === 'overseas' ? 'overseas' : 'common';
+  const publisher = domain === 'domestic' ? '체크인' : domain === 'overseas' ? '인트립' : '';
+  const exposure = state.exposureType === 'showroom' ? 'showroom' : 'goods';
+  let items;
+  if (exposure === 'showroom') {
+    items = (state.selectedShowrooms || []).map((s) => ({
+      kind: 'showroom', showroomName: s.name || '', hotel: s.kind === 'hotel' ? (s.name || '') : (s.hotel || ''),
+      region: s.kind === 'region' ? (s.name || '') : (s.region || ''), description: '',
+    }));
+  } else {
+    items = products.map((m) => ({
+      kind: 'goods', productId: m.productId || '', productName: m.productName || m.name || '', hotel: m.hotel || '',
+      showroomName: m.hotel || m.region || '', region: m.region || '', type: m.type || '', description: '',
+    }));
+  }
+  // 전시 종료일 기본값: 선택 상품 중 "가장 늦게까지 파는" 판매종료일(상시판매 포함 시 무기한). 쇼룸 노출은 미적용(수정 가능).
+  let dpEnd = '', dpUnlimited = false;
+  if (exposure !== 'showroom') {
+    const sidx = crawlSaleIndex();
+    const rs = products.map((p) => sidx.get(String(p.productCode || '')) || sidx.get(String(p.productId || ''))).filter(Boolean);
+    if (rs.length) {
+      if (rs.some((r) => r.alwaysOn || !r.saleEnd)) dpUnlimited = true; // 상시판매가 하나라도 있으면 가장 늦게까지 판매 → 무기한
+      else { const mx = rs.map((r) => r.saleEnd).filter(Boolean).sort().pop(); if (mx) dpEnd = mx + 'T23:59'; } // YYYY-MM-DD → datetime-local
+    }
+  }
+  return {
+    content: { title: c.title || '', body: c.body || '', persona: c.persona || '', form: c.form || '', matched: products, hotels: c.hotels || [], category: cat },
+    domain, publisherShowroom: publisher, exposure,
+    mediaMode: state.publishFormat || (state.confirmedImages && state.confirmedImages.length ? 'normal' : 'off'),
+    images: state.confirmedImages || [], matches: state.matches || {},
+    items, filterKeywords: [], displayOrder: null, displayVisible: true,
+    displayPeriod: { start: '', end: dpEnd, unlimited: dpUnlimited }, status: 'draft',
+  };
+}
+// 크롤 데이터 인덱스(상품코드/ID → 상품). 판매종료일·상시판매 조회용.
+function crawlSaleIndex() {
+  const m = new Map();
+  for (const s of ['domestic', 'overseas']) { try { for (const r of crawl.normalizedItems(s)) { if (r.productCode) m.set(String(r.productCode), r); if (r.productId) m.set(String(r.productId), r); } } catch {} }
+  return m;
+}
+// custom description 자동생성 job (상품/쇼룸별 14자 이하 요약)
+function buildPublishDescJob(items) {
+  const compact = (items || []).map((it, i) => ({ i, name: it.productName || it.showroomName || '', hotel: it.hotel || '', region: it.region || '', type: it.type || '', kind: it.kind }));
+  const instructions = [
+    '이 요청은 "발행 아이템별 짧은 설명(description) 자동생성"입니다. items 각각에 14자 이하의 매력적인 한 줄 설명을 만들어 이 파일을 덮어써 저장하세요.',
+    '규칙: 공백 포함 14자 이하(엄수). 그 상품/쇼룸의 핵심 매력을 압축(예: "오션뷰 스위트", "미쉐린 3스타 미식", "가성비 시티 호캉스"). 과장·상투구 금지, 구체적 특징 위주. hotel/region/type/name을 근거로.',
+    '완료 시 status "done", output 형식: { "descriptions": [ { "i": 0, "description": "오션뷰 스위트" }, ... ] } — items 개수만큼.',
+  ].join('\n');
+  return jobs.createJob('pubdesc', { input: { model: 'opus' }, items: compact, instructions, output: null });
+}
+// 발행 항목의 이미지를 로컬로 스테이징(NAS/업로드 → publish-staging/<id>/) — 재사용 함수
+async function stageImagesFor(it) {
+  const imgs = (it.images || []).filter((im) => im && (im.nasPath || im.path));
+  const dir = path.join(DIR, 'publish-staging', it.id);
+  fs.mkdirSync(dir, { recursive: true });
+  try { for (const f of fs.readdirSync(dir)) fs.unlinkSync(path.join(dir, f)); } catch {}
+  if (!imgs.length) return { dir, count: 0, files: [] };
+  const { safeName } = require('../image-picker/exporter');
+  const files = [];
+  for (let i = 0; i < imgs.length; i++) {
+    const src = imgs[i].nasPath || imgs[i].path || '';
+    let ext = (path.extname(src) || '.jpg').toLowerCase(); if (!/\.(jpg|jpeg|png|webp|gif|mp4)$/i.test(ext)) ext = '.jpg';
+    const local = path.join(dir, String(i + 1).padStart(2, '0') + '_' + safeName((imgs[i].name || path.basename(src) || 'img').replace(/\.[^.]+$/, '')).slice(0, 40) + ext);
+    try {
+      let buf;
+      if (src.startsWith('upload:')) { const up = path.join(UPLOADS, src.slice('upload:'.length)); if (up.startsWith(UPLOADS) && fs.existsSync(up)) buf = fs.readFileSync(up); }
+      else if (syno) { const r = await syno.download(src); buf = Buffer.from(await r.arrayBuffer()); }
+      if (buf && buf.length) { fs.writeFileSync(local, buf); files.push({ nasPath: src, name: imgs[i].name || path.basename(src), localPath: local }); }
+    } catch (e) { console.error('[stage-images]', src, e.message); }
+  }
+  return { dir, count: files.length, files };
+}
+// 발행 실행(헤드리스 Playwright) — 백그라운드로 스테이징+등록, 상태 갱신
+function runPublishJob(id) {
+  (async () => {
+    const setStatus = (patch) => { const a = loadPublishQueue(); const x = a.find((y) => y.id === id); if (x) { Object.assign(x, patch); savePublishQueue(a); } return x; };
+    try {
+      const it = loadPublishQueue().find((y) => y.id === id);
+      if (!it) return;
+      const staged = await stageImagesFor(it);
+      let publishItem; try { ({ publishItem } = require('./publisher')); } catch (e) { setStatus({ status: 'failed', error: 'Playwright 미설치: npm i playwright && npx playwright install chromium' }); return; }
+      const r = await publishItem(it, staged.files);
+      if (r.ok) setStatus({ status: 'published', publishedAt: new Date().toISOString(), error: '' });
+      else setStatus({ status: 'failed', error: r.error || '실패' });
+      console.log('[publish]', id, r.ok ? '성공' : ('실패: ' + r.error));
+    } catch (e) { setStatus({ status: 'failed', error: e.message }); console.error('[publish]', id, e.message); }
+  })();
+}
+
 // ── Claude 자동 호출(헤드리스) ────────────────────────────────────────────────
 // [생성] 시 프로그램이 `claude -p` 를 별도 프로세스로 띄워 pending job을 직접 처리한다.
 // 사람이 문구를 붙여넣을 필요 없음. 구독으로 동작(API 추가 결제 없음). AUTO_CLAUDE=0 이면 수동 모드.
@@ -417,6 +519,26 @@ function categoryOf(item, idx) {
   return 'unknown';
 }
 function categorizeSaved(items) { const idx = buildDomOvsIndex(); return items.map((it) => ({ ...it, category: categoryOf(it, idx) })); }
+// 콘텐츠 매칭 상품을 실제 크롤 데이터와 대조해 "정확한 쇼룸명" 도출(국내=호텔명, 해외=지역명).
+// 등록 시 쇼룸 검색 오류를 막기 위해 LLM 텍스트가 아닌 데이터셋의 정확 명칭을 사용.
+function resolveShowrooms(matched) {
+  const idxOf = (arr) => { const m = new Map(); arr.forEach((r) => { if (r.productCode) m.set(String(r.productCode), r); if (r.productId) m.set(String(r.productId), r); }); return m; };
+  let di, oi; try { di = idxOf(crawl.normalizedItems('domestic')); } catch { di = new Map(); }
+  try { oi = idxOf(crawl.normalizedItems('overseas')); } catch { oi = new Map(); }
+  const out = new Map();
+  (matched || []).forEach((mm) => {
+    const code = String(mm.productCode || ''), id = String(mm.productId || '');
+    let r = di.get(code) || di.get(id), src = 'domestic';
+    if (!r) { r = oi.get(code) || oi.get(id); src = 'overseas'; }
+    let name, kind, exact;
+    if (r) { exact = true; if (src === 'overseas') { name = r.region || r.hotel || ''; kind = 'region'; } else { name = r.hotel || ''; kind = 'hotel'; } }
+    else { exact = false; if (mm.hotel) { name = mm.hotel; kind = 'hotel'; } else { name = mm.region || ''; kind = 'region'; } } // 데이터에 없으면 매칭 텍스트로 폴백
+    if (!name) return;
+    if (!out.has(name)) out.set(name, { name, kind, code: (r && (r.productCode || r.productId)) || mm.productCode || mm.productId || '', hotel: (r && r.hotel) || mm.hotel || '', region: (r && r.region) || mm.region || '', products: [], exact });
+    out.get(name).products.push((r && r.productId) || mm.productId || '');
+  });
+  return [...out.values()];
+}
 
 // 상품을 job에 넣을 때 토큰 절약을 위해 필요한 필드만 + 혜택 요약(속도 개선). 긴 원문(detail) 대신 압축.
 function compactForJob(items) {
@@ -691,18 +813,37 @@ const server = http.createServer(async (req, res) => {
       if (!item) return sendErr(res, 400, 'item 필요');
       state.selectedContent = item;
       state.selectedProducts = [];
+      state.selectedShowrooms = [];
+      state.exposureType = 'goods';
       state.confirmedImages = [];
       state.matches = {};
       saveState(state);
       return sendJson(res, 200, { ok: true });
     }
-    // 콘텐츠에 넣을 상품 선택 저장
+    // 콘텐츠에 넣을 상품 선택 저장(구버전 호환 — 상품 노출)
     if (p === '/api/content/products' && req.method === 'POST') {
       const { products } = JSON.parse(await readBody(req) || '{}');
       state.selectedProducts = Array.isArray(products) ? products : [];
+      state.exposureType = 'goods'; state.selectedShowrooms = [];
       state.matches = {};
       saveState(state);
       return sendJson(res, 200, { ok: true });
+    }
+    // 추천 쇼룸(정확 명칭) — 콘텐츠 매칭 상품을 크롤 데이터와 대조해 도출
+    if (p === '/api/content/showrooms' && req.method === 'GET') {
+      const c = state.selectedContent;
+      if (!c) return sendErr(res, 400, '선택된 콘텐츠가 없습니다.');
+      return sendJson(res, 200, { candidates: resolveShowrooms(c.matched || []) });
+    }
+    // 노출 종류(상품/쇼룸) + 선택 아이템 저장
+    if (p === '/api/content/exposure' && req.method === 'POST') {
+      const { exposureType, products, showrooms } = JSON.parse(await readBody(req) || '{}');
+      state.exposureType = exposureType === 'showroom' ? 'showroom' : 'goods';
+      state.selectedProducts = Array.isArray(products) ? products : [];
+      state.selectedShowrooms = Array.isArray(showrooms) ? showrooms : [];
+      state.matches = {};
+      saveState(state);
+      return sendJson(res, 200, { ok: true, exposureType: state.exposureType });
     }
     // 이미지↔상품 매칭 저장 (productCode → nasPath)
     if (p === '/api/content/matches' && req.method === 'POST') {
@@ -888,8 +1029,103 @@ const server = http.createServer(async (req, res) => {
     // ---- ⑤ 미리보기 ----
     if (p === '/api/preview') {
       const content = state.selectedContent;
-      const products = (state.selectedProducts && state.selectedProducts.length) ? state.selectedProducts : (content && content.matched) || [];
-      return sendJson(res, 200, { content, images: state.confirmedImages, products, matches: state.matches || {} });
+      let products;
+      if (state.exposureType === 'showroom') {
+        products = (state.selectedShowrooms || []).map((s) => ({ productName: s.name, name: s.name, hotel: s.name, isShowroom: true, productCode: s.code || '', productId: s.code || '' }));
+      } else {
+        products = (state.selectedProducts && state.selectedProducts.length) ? state.selectedProducts : (content && content.matched) || [];
+      }
+      return sendJson(res, 200, { content, images: state.confirmedImages, products, matches: state.matches || {}, exposureType: state.exposureType || 'goods' });
+    }
+
+    // ---- ⑥ 발행(등록) ----
+    // 미리보기에서 선택한 발행 형태 저장(2→off, 1→normal, 3→custom)
+    if (p === '/api/publish/format' && req.method === 'POST') {
+      const { mode } = JSON.parse(await readBody(req) || '{}');
+      if (!['off', 'normal', 'custom'].includes(mode)) return sendErr(res, 400, "mode(off|normal|custom) 필요");
+      state.publishFormat = mode; saveState(state);
+      return sendJson(res, 200, { ok: true, mode });
+    }
+    // 현재 콘텐츠로 발행 초안 구성(미리채움)
+    if (p === '/api/publish/draft' && req.method === 'GET') {
+      const draft = buildPublishDraft();
+      if (!draft) return sendErr(res, 400, '먼저 콘텐츠를 선택하세요(②~⑤ 단계).');
+      return sendJson(res, 200, { draft });
+    }
+    // 발행 큐 CRUD
+    if (p === '/api/publish/queue') {
+      if (req.method === 'GET') return sendJson(res, 200, { items: loadPublishQueue() });
+      if (req.method === 'POST') {
+        const { item } = JSON.parse(await readBody(req) || '{}');
+        if (!item) return sendErr(res, 400, 'item 필요');
+        const arr = loadPublishQueue();
+        if (item.id) { const i = arr.findIndex((x) => x.id === item.id); if (i >= 0) { arr[i] = { ...arr[i], ...item, updatedAt: new Date().toISOString() }; savePublishQueue(arr); return sendJson(res, 200, { id: item.id, count: arr.length }); } }
+        const id = pubId();
+        arr.unshift({ ...item, id, createdAt: new Date().toISOString(), status: item.status || 'draft' });
+        savePublishQueue(arr);
+        return sendJson(res, 200, { id, count: arr.length });
+      }
+      if (req.method === 'DELETE') { const id = q.get('id'); savePublishQueue(loadPublishQueue().filter((x) => x.id !== id)); return sendJson(res, 200, { ok: true }); }
+    }
+    // 아이템별 description 자동생성 시작/폴링
+    if (p === '/api/publish/description' && req.method === 'POST') {
+      const { items } = JSON.parse(await readBody(req) || '{}');
+      if (!Array.isArray(items) || !items.length) return sendErr(res, 400, 'items 필요');
+      const job = buildPublishDescJob(items);
+      dispatchToClaude(job.id, 'pubdesc');
+      return sendJson(res, 200, { id: job.id });
+    }
+    if (p.startsWith('/api/publish/description/') && req.method === 'GET') {
+      const job = jobs.readJob(p.slice('/api/publish/description/'.length));
+      if (!job) return sendErr(res, 404, 'job 없음');
+      return sendJson(res, 200, { status: job.status, descriptions: (job.output && job.output.descriptions) || null });
+    }
+    // 발행 실행 — 스튜디오가 헤드리스(Playwright)로 백오피스에 직접 등록(버튼만 누르면 자동). 백그라운드 실행.
+    if (p === '/api/publish/run' && req.method === 'POST') {
+      const { id } = JSON.parse(await readBody(req) || '{}');
+      const arr = loadPublishQueue(); const it = arr.find((x) => x.id === id);
+      if (!it) return sendErr(res, 404, '항목 없음');
+      it.status = 'publishing'; it.requestedAt = new Date().toISOString(); it.error = '';
+      savePublishQueue(arr);
+      runPublishJob(id); // 비동기 발행 시작(완료 시 status→published/failed)
+      return sendJson(res, 200, { ok: true, id, status: 'publishing' });
+    }
+    // 발행 상태 갱신(자동화가 완료/실패 기록)
+    if (p === '/api/publish/status' && req.method === 'POST') {
+      const { id, status, postId, error } = JSON.parse(await readBody(req) || '{}');
+      const arr = loadPublishQueue(); const it = arr.find((x) => x.id === id);
+      if (!it) return sendErr(res, 404, '항목 없음');
+      if (status) it.status = status;
+      if (postId) it.backofficePostId = postId;
+      if (error !== undefined) it.error = error;
+      if (status === 'published') it.publishedAt = new Date().toISOString();
+      savePublishQueue(arr);
+      return sendJson(res, 200, { ok: true });
+    }
+    // 쇼룸 매핑 캐시(크롤명→백오피스 쇼룸ID/명) — 예외만 학습 저장(주기 스캔 불필요)
+    if (p === '/api/publish/showroom-map') {
+      const SHOWROOM_MAP_FILE = path.join(DIR, 'showroom-map.json');
+      if (req.method === 'GET') return sendJson(res, 200, { map: loadJson(SHOWROOM_MAP_FILE) || {} });
+      if (req.method === 'POST') {
+        const { name, backofficeId, backofficeName } = JSON.parse(await readBody(req) || '{}');
+        const m = loadJson(SHOWROOM_MAP_FILE) || {};
+        if (name) { m[name] = { backofficeId: backofficeId || '', backofficeName: backofficeName || '', at: new Date().toISOString() }; fs.writeFileSync(SHOWROOM_MAP_FILE, JSON.stringify(m, null, 2)); }
+        return sendJson(res, 200, { ok: true, map: m });
+      }
+    }
+    // 발행 항목의 이미지를 로컬로 스테이징(B-2: 백오피스 파일 업로드 자동화용) — NAS/업로드 → publish-staging/<id>/
+    if (p === '/api/publish/stage-images' && req.method === 'POST') {
+      const { id } = JSON.parse(await readBody(req) || '{}');
+      const it = loadPublishQueue().find((x) => x.id === id);
+      if (!it) return sendErr(res, 404, '항목 없음');
+      return sendJson(res, 200, await stageImagesFor(it));
+    }
+    // 발행 환경 상태(세션·Playwright 준비 여부) — UI 안내용
+    if (p === '/api/publish/office-status' && req.method === 'GET') {
+      const officeCfg = require('./_officecfg');
+      let playwrightOk = false; try { require.resolve('playwright'); playwrightOk = true; } catch {}
+      const sessionOk = fs.existsSync(officeCfg.sessionFile);
+      return sendJson(res, 200, { playwrightOk, sessionOk, baseUrl: officeCfg.baseUrl });
     }
 
     return sendErr(res, 404, 'unknown endpoint: ' + p);
