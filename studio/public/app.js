@@ -153,8 +153,11 @@ async function loadRegions() {
     sel.innerHTML = opts.join('');
     sel.value = regions.some((r) => r.region === prev) ? prev : ''; // 구분 바뀌면 없는 지역은 전체로
   } catch { sel.innerHTML = '<option value="">전체</option>'; }
+  refreshTypeCounts(); // 지역 목록 갱신 후 타입 수도 재계산
 }
-$('#cCondition').addEventListener('change', () => $('#cUntilWrap').classList.toggle('hidden', $('#cCondition').value !== 'until'));
+$('#cRegion').addEventListener('change', refreshTypeCounts);
+$('#cCondition').addEventListener('change', () => { $('#cUntilWrap').classList.toggle('hidden', $('#cCondition').value !== 'until'); refreshTypeCounts(); });
+$('#cUntil').addEventListener('change', refreshTypeCounts);
 
 // 생성 모드 토글(주제 자동 생성 / 내 콘텐츠 매칭)
 let genMode = 'generate';
@@ -177,6 +180,7 @@ function commonBody() {
   return b;
 }
 async function submitGeneration(extra) {
+  if (typeTotal === 0 && !pickCodes.size) return alert('선택한 지역·판매조건에 해당하는 상품이 없어 콘텐츠를 생성할 수 없어요. 조건을 바꿔주세요.');
   const body = { ...commonBody(), ...extra };
   // 생성 scope로 분류를 미리 기록: 국내 생성=국내 호텔, 해외 생성=해외 여행상품.
   // 단, 상품 타입/직접선택은 양쪽 데이터셋을 넘나들 수 있어 매칭 상품으로 서버가 판정하도록 비워둠.
@@ -210,23 +214,48 @@ $('#formChips').addEventListener('click', (e) => { const c = e.target.closest('.
 // 상품 타입 다중선택(프리미엄 호텔·리조트·라이프스타일·해외패키지·해외호텔·현지투어 등)
 const selTypes = new Set();
 let allProductTypes = []; // 전체 타입(출처 포함) — 구분 선택에 따라 필터
+let typeCounts = null; // 현재 필터(지역+판매조건+날짜)의 타입별 상품 수. null=미로딩(전역 count 표시, 비활성 안 함)
+let typeTotal = null;  // 현재 필터 풀의 총 상품 수(전체 0이면 생성 불가)
 async function loadProductTypes() {
   try { const { types } = await api('/api/product-types'); allProductTypes = types || []; renderTypeChips(); } catch {}
 }
-// 선택한 구분(국내/해외)에 해당하는 타입만 노출(both는 항상). 구분 밖 선택은 해제.
+// 지역/판매조건/날짜에 맞는 타입별 상품 수를 서버에서 받아 칩 count·활성화·생성가능 여부 갱신
+async function refreshTypeCounts() {
+  const scope = ($('#cScope') && $('#cScope').value) || 'domestic';
+  const region = ($('#cRegion') && $('#cRegion').value) || '';
+  const condition = ($('#cCondition') && $('#cCondition').value) || 'selling';
+  const until = ($('#cUntil') && $('#cUntil').value) || '';
+  const qs = `scope=${encodeURIComponent(scope)}&region=${encodeURIComponent(region)}&condition=${encodeURIComponent(condition)}&until=${encodeURIComponent(until)}`;
+  try { const r = await api('/api/content/type-counts?' + qs); typeCounts = r.counts || {}; typeTotal = r.total || 0; }
+  catch { typeCounts = null; typeTotal = null; }
+  renderTypeChips(); updateGenGate();
+}
+// 선택한 구분(국내/해외)에 해당하는 타입만 노출(both는 항상). 구분 밖 선택은 해제. 0개 타입은 비활성(선택 불가).
 function renderTypeChips() {
   const scope = ($('#cScope') && $('#cScope').value) || 'domestic';
   const shown = allProductTypes.filter((t) => t.source === scope || t.source === 'both');
   const shownSet = new Set(shown.map((t) => t.type));
   [...selTypes].forEach((t) => { if (!shownSet.has(t)) selTypes.delete(t); }); // 다른 구분 타입은 선택 해제
-  $('#typeChips').innerHTML = shown.map((t) => `<span class="chip ${selTypes.has(t.type) ? 'sel' : ''}" data-type="${esc(t.type)}">${esc(t.type)} <span class="muted">${t.count}</span></span>`).join('') || '<span class="muted sm">타입 정보 없음 (재크롤 후 표시)</span>';
+  const loaded = typeCounts !== null;
+  shown.forEach((t) => { const c = loaded ? (typeCounts[t.type] || 0) : t.count; if (loaded && c === 0) selTypes.delete(t.type); }); // 0개면 선택 해제
+  $('#typeChips').innerHTML = shown.map((t) => {
+    const c = loaded ? (typeCounts[t.type] || 0) : t.count;
+    const dis = loaded && c === 0;
+    return `<span class="chip ${selTypes.has(t.type) ? 'sel' : ''}${dis ? ' disabled' : ''}" data-type="${esc(t.type)}"${dis ? ' aria-disabled="true"' : ''}>${esc(t.type)} <span class="muted">${c}</span></span>`;
+  }).join('') || '<span class="muted sm">타입 정보 없음 (재크롤 후 표시)</span>';
 }
-$('#typeChips').addEventListener('click', (e) => { const c = e.target.closest('.chip'); if (!c) return; const t = c.dataset.type; if (selTypes.has(t)) selTypes.delete(t); else selTypes.add(t); c.classList.toggle('sel'); });
+// 전체 상품이 0개(직접 선택도 없음)면 콘텐츠 생성 버튼들을 비활성화 + 안내
+function updateGenGate() {
+  const empty = (typeTotal === 0) && !pickCodes.size; // 조건에 맞는 상품이 하나도 없음
+  ['#genContent', '#matchContent', '#genBrief'].forEach((id) => { const b = $(id); if (b) b.disabled = empty; });
+  const note = $('#genEmptyNote'); if (note) note.classList.toggle('hidden', !empty);
+}
+$('#typeChips').addEventListener('click', (e) => { const c = e.target.closest('.chip'); if (!c || c.classList.contains('disabled')) return; const t = c.dataset.type; if (selTypes.has(t)) selTypes.delete(t); else selTypes.add(t); c.classList.toggle('sel'); });
 $('#matchContent').onclick = () => { if (!$('#mBody').value.trim()) return alert('매칭할 콘텐츠 본문을 입력하세요.'); submitGeneration({ mode: 'match', userTitle: $('#mTitle').value.trim(), userBody: $('#mBody').value.trim() }); };
 $('#genBrief').onclick = () => { const brief = $('#bBrief').value.trim(); if (!brief) return alert('브리프(지시)를 입력하세요.'); submitGeneration({ mode: 'brief', brief, count: $('#bCount').value }); };
 
 $('#togglePicker').onclick = async () => { const el = $('#pickerPanel'); const show = el.classList.contains('hidden'); el.classList.toggle('hidden'); if (show && !pickerRows.length) await loadPicker(); };
-$('#pkClear').onclick = () => { pickCodes.clear(); $('#pickCount').textContent = 0; renderPicker(); };
+$('#pkClear').onclick = () => { pickCodes.clear(); $('#pickCount').textContent = 0; renderPicker(); updateGenGate(); };
 ['#pkSource', '#pkHotel', '#pkType', '#pkKeyword'].forEach((s) => $(s).addEventListener('input', () => { if (s === '#pkSource' || s === '#pkType') fillPickHotels(); renderPicker(); }));
 async function loadPicker() {
   try { const { rows } = await api('/api/products/pick'); pickerRows = rows; fillPickTypes(); fillPickHotels(); renderPicker(); }
@@ -263,7 +292,7 @@ function renderPicker() {
     <div class="pick-sub">${esc(r.hotel || r.region)} · ${esc(r.type)} · ${won(r.price)}${r.status && r.status !== '판매중' ? ' · ' + esc(r.status) : ''}</div></div></div>`; }).join('') || '<div class="muted">조건에 맞는 상품이 없어요.</div>';
   $$('#pickerList input[type=checkbox]').forEach((cb) => cb.onchange = () => {
     const c = cb.dataset.code; if (cb.checked) pickCodes.add(c); else pickCodes.delete(c);
-    cb.closest('.pick-row').classList.toggle('sel', cb.checked); $('#pickCount').textContent = pickCodes.size; meta();
+    cb.closest('.pick-row').classList.toggle('sel', cb.checked); $('#pickCount').textContent = pickCodes.size; meta(); updateGenGate();
   });
 }
 function autoBanner(el, note) {

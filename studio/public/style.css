@@ -59,6 +59,7 @@ select.input, select { border: 1px solid var(--line); background: var(--panel); 
 .chip { background: var(--chip); border: 1px solid transparent; color: var(--ink); padding: 6px 11px; border-radius: 999px; font-size: var(--fs-desc); cursor: pointer; }
 .chip:hover { border-color: var(--accent); }
 .chip.sel { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.chip.disabled { opacity: .4; cursor: not-allowed; pointer-events: none; }
 
 .log { background: #0b0e12; color: #c8d0da; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--fs-meta); line-height: 1.5; padding: 12px 14px; border-radius: 10px; max-height: 240px; overflow: auto; white-space: pre-wrap; margin-top: 12px; }
 

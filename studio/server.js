@@ -550,6 +550,13 @@ function productTypeList() {
   // source: 국내/해외 구분(둘 다면 both) — UI에서 선택 구분에 맞춰 필터
   return [...map.entries()].map(([type, e]) => ({ type, count: e.count, source: e.domestic && e.overseas ? 'both' : e.domestic ? 'domestic' : 'overseas' })).sort((a, b) => b.count - a.count);
 }
+// 콘텐츠 생성 UI용: 현재 필터(구분+지역+판매조건+날짜)에 해당하는 타입별 상품 수. 0개 타입은 선택 불가/전체 0이면 생성 불가 판단용.
+function typeCountsFor({ scope, region, condition, until }) {
+  const items = pickProducts({ scope, region, condition, until }); // productCodes/Types 없음 → 구분+지역+판매조건 풀
+  const counts = {};
+  for (const r of items) { if (r.productType) counts[r.productType] = (counts[r.productType] || 0) + 1; }
+  return { counts, total: items.length };
+}
 // 저장 콘텐츠를 국내 호텔 / 해외 여행상품으로 분류(매칭 상품코드·ID를 데이터셋과 대조)
 function buildDomOvsIndex() {
   const dom = new Set(), ovs = new Set();
@@ -714,6 +721,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/themes') return sendJson(res, 200, THEME_PRESETS);
     if (p === '/api/product-types') return sendJson(res, 200, { types: productTypeList() });
     if (p === '/api/content/regions') { const scope = (q.get('scope') === 'overseas') ? 'overseas' : 'domestic'; return sendJson(res, 200, { scope, regions: regionList(scope) }); }
+    if (p === '/api/content/type-counts') { const scope = (q.get('scope') === 'overseas') ? 'overseas' : 'domestic'; return sendJson(res, 200, typeCountsFor({ scope, region: q.get('region') || '', condition: q.get('condition') || 'selling', until: q.get('until') || '' })); }
 
     // ---- ① 크롤링 ----
     if (p === '/api/crawl' && req.method === 'POST') {
