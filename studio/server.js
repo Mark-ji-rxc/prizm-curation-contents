@@ -318,7 +318,21 @@ function runPublishJob(id) {
       if (!it) return;
       const staged = await stageImagesFor(it);
       let publishItem; try { ({ publishItem } = require('./publisher')); } catch (e) { setStatus({ status: 'failed', error: 'Playwright 미설치: npm i playwright && npx playwright install chromium' }); return; }
-      const r = await publishItem(it, staged.files);
+      // custom(상품↔이미지 1:1): productId → 로컬 이미지 경로. matches(key=productCode|productId|productName)→nasPath→staged.localPath
+      let customImages = null;
+      if (it.mediaMode === 'custom') {
+        customImages = {};
+        const local = {}; for (const f of (staged.files || [])) local[f.nasPath] = f.localPath;
+        const matched = (it.content && it.content.matched) || [];
+        for (const g of (it.items || [])) {
+          if (g.kind === 'showroom' || !g.productId) continue;
+          const m = matched.find((x) => String(x.productId) === String(g.productId)) || {};
+          const key = String(m.productCode || m.productId || g.productId || m.productName || g.productName || '');
+          const nas = (it.matches || {})[key];
+          if (nas && local[nas]) customImages[String(g.productId)] = local[nas];
+        }
+      }
+      const r = await publishItem(it, staged.files, customImages);
       if (r.ok) setStatus({ status: 'published', publishedAt: new Date().toISOString(), error: '' });
       else setStatus({ status: 'failed', error: r.error || '실패' });
       console.log('[publish]', id, r.ok ? '성공' : ('실패: ' + r.error));
