@@ -504,8 +504,40 @@ function pickProducts({ scope, region, condition, until, productCodes, productTy
     return all.filter((r) => set.has(r.productType));
   }
   let items = applyCondition(crawl.normalizedItems(scope), condition || 'selling', until);
-  if (region && scope === 'domestic') items = items.filter((r) => r.region === region);
+  if (region) {
+    if (scope === 'overseas') items = items.filter((r) => overseasRegion(r) === region);
+    else items = items.filter((r) => r.region === region);
+  }
   return items;
+}
+// 해외 상품은 국가/도시 필드가 없고 지역명(예: "푸꾸옥 자유 패키지")만 있어 이를 도시/지역으로 정규화한다.
+// - 해외 패키지·현지 투어: "도시 카테고리" 구조 → 첫 어절(도시). ('일본 현지투어'처럼 데이터가 국가로 쓰는 경우도 그대로 존중)
+// - 해외 호텔: 지역명이 호텔명이라 이름 속 도시 키워드를 추출(없으면 마지막 어절).
+const HOTEL_CITY = ['하노이', '호치민', '다낭', '나트랑', '푸꾸옥', '방콕', '푸켓', '치앙마이', '세부', '보라카이', '마닐라', '도쿄', '오사카', '교토', '후쿠오카', '삿포로', '나고야', '오키나와', '싱가포르', '발리', '자카르타', '홍콩', '마카오', '타이베이', '가오슝', '코타키나발루', '쿠알라룸푸르', '괌', '사이판'];
+// 국가 단위로 묶을 도시/지역 → 대표명. (요청: 일본 도시들은 "일본"으로 묶음. 베트남 등은 도시 단위 유지)
+const REGION_GROUP = { 오사카: '일본', 기타규슈: '일본', 대마도: '일본', 이시가키: '일본', 후쿠오카: '일본', 삿포로: '일본', 도쿄: '일본', 교토: '일본', 나고야: '일본', 오키나와: '일본', 일본: '일본' };
+function overseasRegion(r) {
+  const reg = String(r.region || '').trim();
+  if (!reg) return '';
+  let name;
+  if (r.type === '해외 호텔' || r.productType === '해외 호텔') {
+    const city = HOTEL_CITY.find((c) => reg.includes(c));
+    const parts = reg.split(/\s+/);
+    name = city || parts[parts.length - 1] || reg;
+  } else {
+    name = reg.split(/\s+/)[0] || reg;
+  }
+  return REGION_GROUP[name] || name; // 일본 등 국가 그룹으로 통합
+}
+// 콘텐츠 생성 UI용: scope별 지역 목록(해외는 도시/지역으로 정규화). [{region,count}] ko 정렬.
+function regionList(scope) {
+  const m = new Map();
+  for (const r of crawl.normalizedItems(scope)) {
+    const name = scope === 'overseas' ? overseasRegion(r) : String(r.region || '').trim();
+    if (!name) continue;
+    m.set(name, (m.get(name) || 0) + 1);
+  }
+  return [...m.entries()].map(([region, count]) => ({ region, count })).sort((a, b) => a.region.localeCompare(b.region, 'ko'));
 }
 // 콘텐츠 생성 UI용: 존재하는 상품 타입 목록(프리미엄 호텔·리조트·라이프스타일·해외패키지·해외호텔·현지투어 등)
 function productTypeList() {
@@ -681,6 +713,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/state') return sendJson(res, 200, { state, nasReady: !!syno, datasets: { domestic: crawl.datasetInfo('domestic'), overseas: crawl.datasetInfo('overseas') } });
     if (p === '/api/themes') return sendJson(res, 200, THEME_PRESETS);
     if (p === '/api/product-types') return sendJson(res, 200, { types: productTypeList() });
+    if (p === '/api/content/regions') { const scope = (q.get('scope') === 'overseas') ? 'overseas' : 'domestic'; return sendJson(res, 200, { scope, regions: regionList(scope) }); }
 
     // ---- ① 크롤링 ----
     if (p === '/api/crawl' && req.method === 'POST') {

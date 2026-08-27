@@ -138,9 +138,21 @@ async function loadThemes() {
       $('#themePresets').innerHTML = (t[scope] || []).map((x) => `<span class="chip">${esc(x)}</span>`).join('');
     };
     render();
-    $('#cScope').addEventListener('change', () => { render(); renderTypeChips(); }); // 구분 바뀌면 상품 타입 칩도 재필터
+    $('#cScope').addEventListener('change', () => { render(); renderTypeChips(); loadRegions(); }); // 구분 바뀌면 상품 타입 칩·지역 목록 재필터
     $('#themePresets').addEventListener('click', (e) => { if (e.target.classList.contains('chip')) $('#cTopic').value = e.target.textContent; });
   } catch {}
+}
+// 지역 드롭다운: 선택 구분(국내/해외)에 존재하는 지역만. 해외는 서버가 도시/지역으로 정규화(푸꾸옥·나트랑·방콕·일본 등).
+async function loadRegions() {
+  const sel = $('#cRegion'); if (!sel) return;
+  const scope = $('#cScope').value;
+  const prev = sel.value;
+  try {
+    const { regions } = await api('/api/content/regions?scope=' + encodeURIComponent(scope));
+    const opts = ['<option value="">전체</option>'].concat((regions || []).map((r) => `<option value="${esc(r.region)}">${esc(r.region)} (${r.count})</option>`));
+    sel.innerHTML = opts.join('');
+    sel.value = regions.some((r) => r.region === prev) ? prev : ''; // 구분 바뀌면 없는 지역은 전체로
+  } catch { sel.innerHTML = '<option value="">전체</option>'; }
 }
 $('#cCondition').addEventListener('change', () => $('#cUntilWrap').classList.toggle('hidden', $('#cCondition').value !== 'until'));
 
@@ -978,6 +990,7 @@ async function genDescriptions(it) {
 // ── 초기화 ───────────────────────────────────────────────────────────────────
 (async function init() {
   loadThemes();
+  loadRegions();
   renderFormChips();
   loadProductTypes();
   loadMe();
