@@ -173,8 +173,16 @@ $('#genModeTabs').addEventListener('click', (e) => {
 // 상품 직접 선택(피커) — 선택 시 그 상품들로만 생성/매칭
 const pickCodes = new Set();
 let pickerRows = [];
+// 본문 글자수 범위(프리셋 "min-max" 또는 직접 입력). 기본 100~300.
+function bodyLenValues() {
+  const v = ($('#cBodyLen') && $('#cBodyLen').value) || '100-300';
+  if (v === 'custom') return { bodyMin: Number($('#cBodyMin').value) || 100, bodyMax: Number($('#cBodyMax').value) || 300 };
+  const [a, b] = v.split('-').map(Number);
+  return { bodyMin: a || 100, bodyMax: b || 300 };
+}
+$('#cBodyLen') && $('#cBodyLen').addEventListener('change', () => { $('#cBodyLenCustom').classList.toggle('hidden', $('#cBodyLen').value !== 'custom'); });
 function commonBody() {
-  const b = { scope: $('#cScope').value, region: $('#cRegion').value.trim(), condition: $('#cCondition').value, until: $('#cUntil').value, webSearch: $('#cWeb').checked, model: $('#cModel').value };
+  const b = { scope: $('#cScope').value, region: $('#cRegion').value.trim(), condition: $('#cCondition').value, until: $('#cUntil').value, webSearch: $('#cWeb').checked, model: $('#cModel').value, ...bodyLenValues() };
   if (pickCodes.size) b.productCodes = [...pickCodes];
   if (selTypes.size) b.productTypes = [...selTypes];
   return b;

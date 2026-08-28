@@ -336,6 +336,9 @@ label.block { margin-top: var(--sp-2); }
 .chip { font-size: var(--fs-meta); }
 .badge { font-size: var(--fs-meta); }
 
+.len-inputs { display: inline-flex; align-items: center; gap: 6px; }
+.len-inputs .input { width: 78px; }
+
 /* ── 노출 캘린더 ── */
 .cal-wrap { border: 1px solid var(--line); border-radius: var(--radius); padding: var(--sp-3); margin: var(--sp-3) 0 var(--sp-4); background: var(--panel); }
 .cal-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; margin-bottom: var(--sp-2); }

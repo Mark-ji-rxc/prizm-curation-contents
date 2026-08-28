@@ -610,9 +610,15 @@ function compactForJob(items) {
 
 // ── 콘텐츠 생성 job 만들기 ────────────────────────────────────────────────────
 // mode: 'generate'(주제 자동 도출) | 'match'(내가 쓴 콘텐츠 매칭) | 'brief'(지시/브리프로 생성)
-function buildContentJob({ topic, count, perTopic, forms, scope, region, form, persona, condition, until, productCodes, productTypes, mode, userTitle, userBody, model, brief, webSearch }) {
+function buildContentJob({ topic, count, perTopic, forms, scope, region, form, persona, condition, until, productCodes, productTypes, mode, userTitle, userBody, model, brief, webSearch, bodyMin, bodyMax }) {
   const per = Math.max(1, Number(perTopic) || 1);
   const web = !!webSearch;
+  // 본문 글자수 범위(조정 가능). 기본 100~300자. 값이 오면 20~2000자로 클램프하고 min<max 보장.
+  let bMin = Math.round(Number(bodyMin)) || 100, bMax = Math.round(Number(bodyMax)) || 300;
+  bMin = Math.min(Math.max(bMin, 20), 2000); bMax = Math.min(Math.max(bMax, 20), 2000);
+  if (bMax < bMin) [bMin, bMax] = [bMax, bMin];
+  const bodyRule = `공백 포함 ${bMin}~${bMax}자`;
+  const bodyLenNote = bMax > 300 ? `※ 본문을 길게(${bMin}~${bMax}자) 쓸 때는 장면·디테일·근거를 더 풍부하게 전개하되, 군더더기·반복·상투구로 늘리지 말 것. 끝까지 밀도를 유지한다.` : '';
   const webLine = web ? '※ 인터넷 검색 사용: 여행지·명물·상품의 사실·수치·현지 이야기를 WebSearch로 확인해 콘텐츠에 구체적으로 반영한다. 부정확·추측 금지, 신뢰할 출처만. (검색은 꼭 필요한 것만 간결하게.)' : '';
   const webLineGen = web ? '※ 인터넷 검색 활용(2가지): (1) 주제 발굴 — 요즘 화제·시즌·트렌드(계절 이벤트, 제철 명물, 연휴, 뜨는 여행지·테마, 최신 이슈)를 WebSearch로 찾아 "유저 관심이 높을 새로운 주제"를 발굴한다. 단, 반드시 실제 products와 연결되는 주제만 채택(데이터에 상품이 없으면 버림). (2) 사실 확인 — 여행지·명물의 유래·수치·현지 이야기를 검색으로 확인해 정확히 반영(추측·부정확 금지). 검색은 필요한 만큼만.' : '';
   const formList = Array.isArray(forms) ? forms.filter(Boolean) : (form ? [form] : []);
@@ -647,7 +653,8 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       `0) products 범위: ${scopeDesc}. 매칭은 이 목록 안에서.`,
       '1) input.brief 를 해석해 핵심 컨셉·후킹 포인트를 잡는다. 브리프에 담긴 스토리(현지 유래·명물·계절·식감 등)를 그대로 살린다.',
       webLine || '※ 사실·수치·현지 이야기는 정확히. 모르면 단정하지 말 것.',
-      '2) input.count 개의 콘텐츠를 하우스 보이스(친근한 반말+존댓말 마무리)로 쓴다: 제목 8~16자(임팩트·호기심), 본문 100~300자(구체적·생생·구매 동기). 브리프의 결을 살려 "그곳에 가고/사고 싶게".',
+      `2) input.count 개의 콘텐츠를 하우스 보이스(친근한 반말+존댓말 마무리)로 쓴다: 제목 8~16자(임팩트·호기심), 본문 ${bodyRule}(구체적·생생·구매 동기). 브리프의 결을 살려 "그곳에 가고/사고 싶게".`,
+      bodyLenNote,
       '3) 각 콘텐츠에 titleAlternatives(제목 다른 후보 2~4개, 각 후보에 한 줄 근거)를 포함한다.',
       '4) 브리프·여행지에 맞는 products 를 matched 에(관련 상품만, productId·productCode 둘 다). hotels(중복 제거)도 채운다. input.persona 있으면 화자로, form 은 어울리는 형으로.',
       refLine,
@@ -669,7 +676,8 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       '  b) 본문 형은 "톤 가이드"일 뿐 템플릿이 아니다. 형은 지키되 문장·전개는 자유롭게.',
       '  c) 숙소/여행지/상품의 "구체적 실체"에 근거해 쓴다: 그 호텔만의 특징(뷰·위치·객실·다이닝·시설·특전), 그 여행지의 매력(명물·풍경·계절·분위기), 상품의 실제 혜택(products[].flags/benefits/name). 일반론·상투구·모호한 미사여구 금지.',
       '  d) 읽는 사람이 "그 숙소·여행지를 둘러보고 싶다 / 사고 싶다"는 마음이 들도록 호기심과 구체성, 구매 동기(가성비·희소성·경험·타깃 적합성)를 자연스럽게 녹인다.',
-      '5) 각 콘텐츠: 제목 8~16자, 본문 100~300자, 하우스 보이스, 기계적 반복 금지. item.form 에 실제 사용한 형을 적는다. input.persona 있으면 화자로 반영.',
+      `5) 각 콘텐츠: 제목 8~16자, 본문 ${bodyRule}, 하우스 보이스, 기계적 반복 금지. item.form 에 실제 사용한 형을 적는다. input.persona 있으면 화자로 반영.`,
+      bodyLenNote,
       '6) 각 콘텐츠에 matched(productId·productCode 둘 다)와 hotels(중복 제거) 채운다. 여행지/명물은 사실확인 후 필요시 web 검색.',
       '7) 완료 시 status "done", output.items 는 정확히 count×perTopic 개.',
       webLineGen,
@@ -679,8 +687,8 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
     ].filter(Boolean).join('\n');
   }
   return jobs.createJob('content', {
-    input: { mode: mode || 'generate', topic: topic || '', count: mode === 'match' ? 1 : (Number(count) || (mode === 'brief' ? 1 : 3)), perTopic: (mode === 'match' || mode === 'brief') ? 1 : per, forms: formList, scope, region: region || '', persona: persona || '', condition: cond, until: until || '', productCodes: productCodes || [], productTypes: productTypes || [], model: model === 'sonnet' ? 'sonnet' : 'opus', webSearch: web, brief: mode === 'brief' ? (brief || '') : '', userContent: mode === 'match' ? { title: userTitle || '', body: userBody || '' } : null },
-    rules: CONTENT_RULES,
+    input: { mode: mode || 'generate', topic: topic || '', count: mode === 'match' ? 1 : (Number(count) || (mode === 'brief' ? 1 : 3)), perTopic: (mode === 'match' || mode === 'brief') ? 1 : per, forms: formList, scope, region: region || '', persona: persona || '', condition: cond, until: until || '', productCodes: productCodes || [], productTypes: productTypes || [], model: model === 'sonnet' ? 'sonnet' : 'opus', webSearch: web, bodyMin: bMin, bodyMax: bMax, brief: mode === 'brief' ? (brief || '') : '', userContent: mode === 'match' ? { title: userTitle || '', body: userBody || '' } : null },
+    rules: { ...CONTENT_RULES, 본문: `${bodyRule}. 무엇이 좋은지 + 왜 이렇게 묶었는지를 고객 상황에서 와닿게. (스튜디오에서 지정한 본문 길이)` },
     referenceExamples: references,
     productCount: items.length,
     products: compactForJob(items),

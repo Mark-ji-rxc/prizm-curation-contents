@@ -125,6 +125,18 @@
         <label>생성 속도
           <select id="cModel" class="input"><option value="opus">품질 우선 (Opus)</option><option value="sonnet">빠르게 (Sonnet)</option></select>
         </label>
+        <label>본문 길이
+          <select id="cBodyLen" class="input">
+            <option value="100-300" selected>기본 (100~300자)</option>
+            <option value="250-450">조금 길게 (250~450자)</option>
+            <option value="400-650">길게 (400~650자)</option>
+            <option value="600-900">아주 길게 (600~900자)</option>
+            <option value="custom">직접 입력…</option>
+          </select>
+        </label>
+        <label id="cBodyLenCustom" class="hidden">직접 글자수 (최소~최대)
+          <span class="len-inputs"><input id="cBodyMin" class="input sm" type="number" min="20" max="2000" value="100" /> ~ <input id="cBodyMax" class="input sm" type="number" min="20" max="2000" value="300" /></span>
+        </label>
         <label class="grow">주제 방향 (선택 · 비우면 데이터에서 자동으로 뽑음)
           <input id="cTopic" class="input" placeholder="비워두면 상품 데이터 기반으로 주제 자동 도출 (프리셋 클릭 시 힌트로 사용)" />
         </label>
