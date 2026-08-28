@@ -62,27 +62,19 @@ async function publishItem(item, stagedFiles, customImages) {
       if (isCustom) { await page.locator('input[type=radio][value="CUSTOM"]').check({ timeout: 5000 }); await page.waitForTimeout(400); step('Custom 모드'); }
     }
 
-    // 5) 아이템 — 상품(goods) 노출: 상품ID로 상품조회 모달에서 추가
+    // 5) 아이템 — 상품(goods) 노출: 상품ID → 실패 시 상품명으로 조회해 선택
+    //    (크롤 상품ID = PRIZM 전시상품 id 라서 백오피스 goods id와 다를 수 있음 → 패키지류는 이름으로 폴백)
     const goods = (item.items || []).filter((x) => x.kind !== 'showroom' && x.productId);
     if (goods.length) {
       await page.getByRole('button', { name: '상품 조회', exact: true }).click();
       const modal = page.getByRole('dialog').first();
       await modal.waitFor({ timeout: 8000 });
-      // 검색조건 → 상품ID
-      await setSearchTypeToId(page, modal);
-      for (const g of goods) {
-        const val = modal.getByRole('textbox').first(); // role=textbox (MUI select 숨은 input 회피)
-        await val.fill('');
-        await val.fill(String(g.productId));
-        await modal.getByRole('button', { name: '검색' }).click();
-        await page.waitForTimeout(1200);
-        // 결과 첫 행 체크박스(정확 ID 검색이라 1건)
-        const cb = modal.locator('table input[type=checkbox]').nth(1); // 0=헤더, 1=첫 행
-        await cb.check({ timeout: 6000 }).catch(() => {});
-      }
-      await modal.getByRole('button', { name: '적용' }).click();
+      const picked = [], missed = [];
+      for (const g of goods) { if (await selectGoodsInModal(page, modal, g)) picked.push(g); else missed.push(g); }
+      if (missed.length) throw new Error('상품 조회 실패 — 백오피스에서 찾지 못한 상품(상품ID/상품명 모두): ' + missed.map((m) => (m.productId + ' ' + (m.productName || '')).trim()).join(' / ') + (picked.length ? ' · (일부 상품은 미등록 방지를 위해 저장하지 않음)' : ''));
+      await modal.getByRole('button', { name: '적용' }).click({ timeout: 8000 });
       await page.waitForTimeout(800);
-      step('상품 ' + goods.length + '개 추가');
+      step('상품 ' + picked.length + '개 추가');
       if (isCustom) await fillCustomRows(page, goods, customImages, step);
     }
     // (쇼룸 노출은 별도 — 아이템 쇼룸 탭. 후속 확장)
@@ -147,16 +139,70 @@ async function fillCustomRows(page, goods, customImages, step) {
   step('custom 행별 설정 — 설명 ' + descN + ' · 이미지 ' + imgN + '개');
 }
 
-// 상품조회 모달 검색조건을 "상품ID"로 (MUI Select = role=button name "searchType")
-async function setSearchTypeToId(page, modal) {
+// 상품조회 모달 검색조건 선택 (MUI Select = role=button name "searchType"). 옵션: 전체/상품ID/상품명
+async function setSearchType(page, modal, typeName) {
   const sel = modal.getByRole('button', { name: 'searchType' }).first();
-  if (await sel.count()) {
-    await sel.click();
-    await page.waitForTimeout(300);
-    await page.getByRole('option', { name: '상품ID', exact: true }).first().click({ timeout: 5000 });
-    await page.waitForTimeout(300);
+  if (!(await sel.count())) return;
+  await sel.click();
+  await page.waitForTimeout(250);
+  await page.getByRole('option', { name: typeName, exact: true }).first().click({ timeout: 5000 }).catch(async () => { await page.keyboard.press('Escape').catch(() => {}); });
+  await page.waitForTimeout(250);
+}
+// 모달에서 검색 실행 후 "실제 결과 행이 있는지"를 반환("데이터가 없습니다"·체크박스 없음이면 false)
+async function searchInModal(page, modal, typeName, value) {
+  await setSearchType(page, modal, typeName);
+  const val = modal.getByRole('textbox').first();
+  await val.fill(''); await val.fill(String(value));
+  await modal.getByRole('button', { name: '검색' }).click();
+  await page.waitForTimeout(1200);
+  const rows = modal.locator('table tbody tr');
+  if (!(await rows.count())) return false;
+  const first = ((await rows.first().innerText().catch(() => '')) || '').replace(/\s+/g, ' ').trim();
+  if (/데이터가 없습니다/.test(first)) return false;
+  return (await modal.locator('table tbody input[type=checkbox]').count()) > 0;
+}
+// 크롤 상품명 → 백오피스 검색용 정리: 선두 [..] 태그·"N박" 제거, 공백 정리
+function cleanName(name) { return String(name || '').replace(/^\s*\[[^\]]*\]\s*/, '').replace(/\s*\d+박\s*/g, ' ').replace(/\s+/g, ' ').trim(); }
+// 특수문자 없는 검색 조각(괄호/대괄호 앞부분) — 백오피스 상품명 검색이 특수문자에 약함
+function searchFragment(name) { const c = cleanName(name); const cut = c.split(/[([]/)[0].trim(); return (cut.length >= 2 ? cut : c).trim(); }
+const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, '');
+// 결과 행 중 크롤 상품명과 일치하는 행 1건을 고른다(TEST/_copy 제외, 모호하면 null)
+async function matchRowByName(modal, fullName) {
+  const key = norm(cleanName(fullName));
+  if (!key) return null;
+  const rows = modal.locator('table tbody tr');
+  const n = await rows.count();
+  const cands = [];
+  for (let i = 0; i < n; i++) {
+    const row = rows.nth(i);
+    const t = ((await row.innerText().catch(() => '')) || '').trim(); // 행 전체 텍스트(상품명 칸 위치가 가변이라 전체로 매칭)
+    if (/test|_copy/i.test(t)) continue; // 테스트/복사본 제외
+    const tn = norm(t);
+    if (tn.includes(key)) cands.push({ row, extra: tn.length - key.length });
   }
+  if (!cands.length) return null;
+  cands.sort((a, b) => a.extra - b.extra); // 군더더기 적은(정확) 행 우선
+  if (cands.length > 1 && cands[0].extra === cands[1].extra) return null; // 동률 모호 → 실패
+  return cands[0].row;
+}
+async function checkRow(row) {
+  const cb = row.locator('input[type=checkbox]').first();
+  if (await cb.count()) { await cb.check({ timeout: 6000 }).catch(() => {}); return true; }
+  return false;
+}
+// 상품 1건을 모달에서 선택: 상품ID → 실패 시 상품명(정확 매칭) 폴백
+async function selectGoodsInModal(page, modal, g) {
+  if (await searchInModal(page, modal, '상품ID', g.productId)) {
+    const row = modal.locator('table tbody tr').first();
+    if (await checkRow(row)) return true;
+  }
+  const frag = searchFragment(g.productName);
+  if (frag && await searchInModal(page, modal, '상품명', frag)) {
+    const row = await matchRowByName(modal, g.productName);
+    if (row && await checkRow(row)) return true;
+  }
+  return false;
 }
 function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
-module.exports = { publishItem };
+module.exports = { publishItem, __test: { selectGoodsInModal, cleanName, searchFragment, matchRowByName } };
