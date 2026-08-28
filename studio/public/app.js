@@ -21,6 +21,7 @@ function goStep(n) {
   $$('.panel').forEach((s) => s.classList.toggle('active', s.dataset.panel == n));
   if (n == 5) renderPreviews();
   if (n == 6) renderPublishStep();
+  if (n == 'cal') loadCalendar();
 }
 $('#steps').addEventListener('click', (e) => { const b = e.target.closest('.step'); if (b) goStep(b.dataset.step); });
 function markDone(n) { const b = $(`.step[data-step="${n}"]`); if (b) b.classList.add('done'); }
@@ -893,7 +894,7 @@ async function addCurrentToQueue() {
   } catch (e) { alert('추가 실패: ' + e.message); }
 }
 async function loadPubQueue() { const { items } = await api('/api/publish/queue'); pubQueue = items; $('#pubCount').textContent = items.length; }
-async function renderPublishStep() { try { await loadPubQueue(); } catch {} if (!pubCurrent() && pubQueue[0]) pubSel = pubQueue[0].id; renderPubList(); renderPubEditor(); loadCalendar(); }
+async function renderPublishStep() { try { await loadPubQueue(); } catch {} if (!pubCurrent() && pubQueue[0]) pubSel = pubQueue[0].id; renderPubList(); renderPubEditor(); }
 function pubCurrent() { return pubQueue.find((x) => x.id === pubSel); }
 
 function renderPubList() {
@@ -1065,7 +1066,7 @@ function wireCalendar() {
   $('#calNext').onclick = () => { calState.cursor = addDays(calState.cursor, calState.view === 'day' ? 1 : calState.view === 'week' ? 7 : 30); if (calState.view === 'month') calState.cursor = new Date(calState.cursor.getFullYear(), calState.cursor.getMonth(), 1); renderCalendar(); };
   $('#calToday').onclick = () => { calState.cursor = startOfDay(new Date()); renderCalendar(); };
   $$('#calView .seg-b').forEach((b) => b.onclick = () => { calState.view = b.dataset.view; $$('#calView .seg-b').forEach((x) => x.classList.toggle('active', x === b)); if (calState.view === 'month') calState.cursor = new Date(calState.cursor.getFullYear(), calState.cursor.getMonth(), 1); renderCalendar(); });
-  $('#calScope').onchange = () => { calState.scope = $('#calScope').value; renderCalendar(); };
+  $$('#calScopeSeg .seg-b').forEach((b) => b.onclick = () => { calState.scope = b.dataset.scope; $$('#calScopeSeg .seg-b').forEach((x) => x.classList.toggle('active', x === b)); renderCalendar(); });
   $('#calLive').onchange = () => { calState.live = $('#calLive').checked; renderCalendar(); };
   $('#calSched').onchange = () => { calState.sched = $('#calSched').checked; renderCalendar(); };
   $('#calEnded').onchange = () => { calState.ended = $('#calEnded').checked; renderCalendar(); };

@@ -16,6 +16,7 @@
     <button class="step" data-step="4"><b>4</b> 이미지 찾기</button>
     <button class="step" data-step="5"><b>5</b> 미리보기</button>
     <button class="step" data-step="6"><b>6</b> 등록</button>
+    <button class="step step-cal" data-step="cal"><b>📅</b> 노출 캘린더</button>
   </nav>
 </header>
 
@@ -356,11 +357,28 @@
       <p class="muted">여러 콘텐츠를 발행 설정까지 준비해 대기목록에 쌓고, 선택한 콘텐츠를 실제 백오피스에 등록합니다. (실제 등록 자동화는 Phase 2)</p></div>
       <button id="pubAddCurrent" class="btn sm">+ 현재 콘텐츠 추가</button>
     </div>
+    <div class="publish-layout">
+      <aside class="pub-queue">
+        <div class="pub-queue-h">발행 대기목록 (<span id="pubCount">0</span>)</div>
+        <div id="pubList"></div>
+      </aside>
+      <div class="pub-editor" id="pubEditor"><div class="muted">왼쪽 대기목록에서 항목을 선택하거나, 미리보기에서 형태를 골라 추가하세요.</div></div>
+    </div>
+  </section>
 
-    <!-- 노출 캘린더 — 백오피스 실제 게시글(스튜디오/백오피스 모두)을 전시기간 기준으로 -->
+  <!-- 노출 캘린더 (별도 탭) — 백오피스 실제 게시글(스튜디오/백오피스 모두)을 전시기간 기준으로 -->
+  <section class="panel" data-panel="cal">
+    <div class="row between">
+      <div><h2>노출 캘린더</h2>
+      <p class="muted">백오피스에 실제 등록된 게시글(스튜디오·백오피스 모두)을 전시기간 기준으로 봅니다. 국내/해외를 구분해 노출중·노출예정을 확인하세요.</p></div>
+    </div>
     <div class="cal-wrap">
       <div class="cal-head">
-        <div class="cal-title">노출 캘린더 <span class="muted sm">— 백오피스 실제 게시글 기준(전시기간)</span></div>
+        <div class="seg seg-lg" id="calScopeSeg">
+          <button type="button" data-scope="all" class="seg-b active">전체</button>
+          <button type="button" data-scope="domestic" class="seg-b">국내 <span class="seg-sub">+공통</span></button>
+          <button type="button" data-scope="overseas" class="seg-b">해외 <span class="seg-sub">+공통</span></button>
+        </div>
         <div class="cal-nav">
           <button id="calPrev" class="btn sm" aria-label="이전">‹</button>
           <button id="calToday" class="btn sm">오늘</button>
@@ -374,13 +392,6 @@
           <button type="button" data-view="week" class="seg-b active">일주일</button>
           <button type="button" data-view="month" class="seg-b">한달</button>
         </div>
-        <label class="cal-field">발행 도메인
-          <select id="calScope" class="input sm">
-            <option value="all">전체</option>
-            <option value="domestic">국내 (+공통)</option>
-            <option value="overseas">해외 (+공통)</option>
-          </select>
-        </label>
         <div class="cal-status">
           <label><input type="checkbox" id="calLive" checked /> 노출중</label>
           <label><input type="checkbox" id="calSched" checked /> 노출예정</label>
@@ -391,14 +402,6 @@
       <div id="calSummary" class="cal-summary"></div>
       <div id="calBody" class="cal-body"><div class="muted sm">불러오는 중…</div></div>
       <div id="calDetail" class="cal-detail"></div>
-    </div>
-
-    <div class="publish-layout">
-      <aside class="pub-queue">
-        <div class="pub-queue-h">발행 대기목록 (<span id="pubCount">0</span>)</div>
-        <div id="pubList"></div>
-      </aside>
-      <div class="pub-editor" id="pubEditor"><div class="muted">왼쪽 대기목록에서 항목을 선택하거나, 미리보기에서 형태를 골라 추가하세요.</div></div>
     </div>
   </section>
 </main>

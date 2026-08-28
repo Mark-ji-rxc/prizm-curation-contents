@@ -27,6 +27,10 @@ code { background: var(--chip); padding: 1px 6px; border-radius: 6px; }
 .step.active { color: var(--ink); border-color: var(--accent); }
 .step.active b { background: var(--accent); color: #fff; }
 .step.done b { background: var(--ok); color: #fff; }
+.step-cal { margin-left: 10px; position: relative; }
+.step-cal::before { content: ""; position: absolute; left: -6px; top: 4px; bottom: 4px; width: 1px; background: var(--line); }
+.step-cal b { background: transparent; }
+.step-cal.active b { background: transparent; }
 
 main { max-width: 1120px; margin: 0 auto; padding: 22px 20px 60px; }
 .panel { display: none; }
@@ -343,6 +347,8 @@ label.block { margin-top: var(--sp-2); }
 .cal-wrap { border: 1px solid var(--line); border-radius: var(--radius); padding: var(--sp-3); margin: var(--sp-3) 0 var(--sp-4); background: var(--panel); }
 .cal-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; margin-bottom: var(--sp-2); }
 .cal-title { font-size: var(--fs-heading); font-weight: 600; }
+.seg-lg .seg-b { padding: 7px 18px; font-size: var(--fs-body); font-weight: 600; }
+.seg-sub { font-size: var(--fs-meta); opacity: .7; font-weight: 400; margin-left: 2px; }
 .cal-nav { display: flex; align-items: center; gap: var(--sp-1); }
 .cal-range { font-size: var(--fs-body); font-weight: 600; margin-left: var(--sp-1); min-width: 120px; }
 .cal-controls { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; padding-bottom: var(--sp-2); border-bottom: 1px solid var(--line); }
