@@ -128,6 +128,8 @@ PRIZM 콘텐츠 제작 전 과정( **크롤링 → 콘텐츠 생성 → 상품 �
 
 ## 변경 이력
 
+- **2026-08-28 (일자 상세 리스트에 "이 날 시작" 표기)**: 하루 뷰·날짜클릭 상세 리스트에서 그 날 노출 **시작**하는 게시글을 행에 별도 표기. `calRow(p,now,d)`가 `p.start`가 그 날에 속하면 `이 날 시작` 배지(파랑, .cal-startrow)+행 좌측 파란 강조(.cal-lrow.cal-starts) 부여. `startsFirst(d)` 정렬로 시작 게시글을 리스트 상단에 모음. 행 레이아웃 grid→flex(배지 2개 수용). 검증(8790): 8.26(시작11) 상세에서 시작 항목이 상단·"노출중+이 날 시작" 배지·좌측 강조 정상.
+
 - **2026-08-28 (캘린더 주간 한 화면 + 날짜별 노출/시작 분리 표기)**: 주간 뷰가 칩 nowrap 때문에 컬럼이 넓어져 **가로 스크롤**되던 문제 수정 — `.cal-week`/`.cal-month` grid를 `repeat(7, minmax(0,1fr))`로(트랙 min-width:0), `.cal-wcol`·`.cal-cell` `overflow:hidden`로 잔여 삐침 클립 → 7일이 한 화면에 들어옴. **날짜별 카운트를 노출중/노출 시작으로 분리 표기(전 뷰 공통)**: helper `startsOnDay`(그 날 전시 시작)·`endsOnDay` 추가, postsOnDay=노출중(전시기간 겹침). 주=컬럼 헤더에 `노출 N`/`시작 M` 배지, 월=셀에 `노출 N`/`시작 M`(cal-mcnts), 일·상세=헤더에 `노출중 N건 · 노출 시작 M건 · 종료 K건`. 색: 노출중=green(--ok)·시작=blue(--accent)·종료=grey(--muted) 배지(.cal-cnt-live/start/end). 검증(8790): weekOverflowX=false·monthOverflowX=false, 주 헤더 예 "수 8.26 노출 32 시작 11", 월 셀 "노출 19/시작 19" 등 정상.
 
 - **2026-08-28 (노출 캘린더 → 별도 탭 + 국내/해외 구분 강화)**: 노출 캘린더를 ⑥ 등록 단계에서 빼내 **독립 탭**(nav "📅 노출 캘린더", `data-step="cal"`/`data-panel="cal"`, 위저드 스텝과 좌측 구분선). goStep에 `n=='cal'→loadCalendar()` 추가, renderPublishStep의 loadCalendar 제거. **국내/해외 구분을 세그먼트 버튼으로 강화**: 기존 발행도메인 select → `#calScopeSeg`(전체/국내(+공통)/해외(+공통)) 큰 세그(.seg-lg), wireCalendar가 버튼 클릭으로 calState.scope 토글. 나머지 캘린더 로직(하루/주/월·상태필터·요약·overlap 카운트)은 동일. 검증(8790): step6에 cal-wrap 없음·cal 탭/패널 존재·세그 3버튼, 탭 클릭 시 패널 활성+로드, 국내/해외 세그 전환 시 전체35·국내28·해외17 정상.

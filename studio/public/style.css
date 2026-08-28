@@ -401,11 +401,13 @@ label.block { margin-top: var(--sp-2); }
 /* 일 뷰 · 상세 리스트 */
 .cal-day-h, .cal-detail-h { font-size: var(--fs-body); font-weight: 600; margin: var(--sp-2) 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .cal-day-list, .cal-detail { display: flex; flex-direction: column; gap: 5px; margin-top: var(--sp-1); }
-.cal-lrow { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 7px 10px; border: 1px solid var(--line); border-radius: 7px; font-size: var(--fs-desc); }
-.cal-lt { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cal-lm { font-size: var(--fs-meta); color: var(--muted); white-space: nowrap; }
-.cal-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 700; }
+.cal-lrow { display: flex; gap: 10px; align-items: center; padding: 7px 10px; border: 1px solid var(--line); border-radius: 7px; font-size: var(--fs-desc); }
+.cal-lrow.cal-starts { border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.cal-lt { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-lm { font-size: var(--fs-meta); color: var(--muted); white-space: nowrap; margin-left: auto; }
+.cal-badge { flex: none; font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 700; }
 .cal-badge.cal-live { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
 .cal-badge.cal-sched { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
 .cal-badge.cal-ended { background: color-mix(in srgb, var(--muted) 18%, transparent); color: var(--muted); }
+.cal-badge.cal-startrow { background: var(--accent); color: var(--accent-ink); }
 @media (max-width: 720px) { .cal-lm { display: none; } .cal-cell { min-height: 56px; } }
