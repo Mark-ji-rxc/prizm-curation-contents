@@ -397,6 +397,9 @@ label.block { margin-top: var(--sp-2); }
 .cal-wlist { padding: 5px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; max-height: 260px; }
 .cal-empty { color: var(--line); text-align: center; }
 .cal-chip { font-size: 11px; padding: 3px 6px; border-radius: 5px; background: var(--chip); display: flex; align-items: center; gap: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-chip.cal-hidden { display: none; }
+.cal-more { margin-top: 2px; border: 1px dashed var(--line); background: transparent; color: var(--accent); font-size: 11px; font-weight: 600; padding: 3px 6px; border-radius: 5px; cursor: pointer; width: 100%; }
+.cal-more:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .cal-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 /* 일 뷰 · 상세 리스트 */
 .cal-day-h, .cal-detail-h { font-size: var(--fs-body); font-weight: 600; margin: var(--sp-2) 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

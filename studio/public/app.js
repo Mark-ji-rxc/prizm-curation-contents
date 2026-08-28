@@ -1085,7 +1085,8 @@ function calSummary() {
     `<span class="cal-pill cal-live">노출중 ${live}</span><span class="cal-pill cal-sched">노출예정 ${sched}</span><span class="cal-pill cal-ended">종료 ${ended}</span>`
     + `<span class="cal-today-n">오늘 노출 <b>${today}</b>건</span>`;
 }
-function postChip(p, now) { const st = postStatus(p, now); const per = fmtMD(new Date(p.start)) + '~' + (p.end ? fmtMD(new Date(p.end)) : '무기한'); return `<div class="cal-chip cal-${st}" title="${esc(p.title)} · ${per} · ${esc(p.publisher)}"><span class="cal-dot"></span>${esc(p.title)}</div>`; }
+function postChip(p, now, cls) { const st = postStatus(p, now); const per = fmtMD(new Date(p.start)) + '~' + (p.end ? fmtMD(new Date(p.end)) : '무기한'); return `<div class="cal-chip cal-${st}${cls ? ' ' + cls : ''}" title="${esc(p.title)} · ${per} · ${esc(p.publisher)}"><span class="cal-dot"></span>${esc(p.title)}</div>`; }
+const WEEK_CHIP_LIMIT = 15; // 요일별 최대 노출 칩 수(초과분은 더보기)
 function renderCalendar() {
   calSummary();
   const now = Date.now();
@@ -1105,11 +1106,14 @@ function renderCalendar() {
     for (let i = 0; i < 7; i++) {
       const d = addDays(start, i); const on = postsOnDay(d).sort((a, b) => a.start - b.start); const st = startsOnDay(d).length;
       const isToday = startOfDay(new Date()).getTime() === d.getTime();
+      const chips = on.map((p, j) => postChip(p, now, j >= WEEK_CHIP_LIMIT ? 'cal-hidden' : '')).join('') || '<div class="cal-empty">·</div>';
+      const more = on.length > WEEK_CHIP_LIMIT ? `<button type="button" class="cal-more">＋ ${on.length - WEEK_CHIP_LIMIT}개 더보기</button>` : '';
       cols += `<div class="cal-wcol${isToday ? ' cal-td' : ''}"><div class="cal-wch"><span class="cal-wd">${WD[d.getDay()]} ${fmtMD(d)}</span>
           <span class="cal-wcounts"><span class="cal-cnt-live" title="이 날 노출중">노출 ${on.length}</span><span class="cal-cnt-start" title="이 날 노출 시작">시작 ${st}</span></span></div>
-        <div class="cal-wlist">${on.map((p) => postChip(p, now)).join('') || '<div class="cal-empty">·</div>'}</div></div>`;
+        <div class="cal-wlist">${chips}${more}</div></div>`;
     }
     body.innerHTML = `<div class="cal-week">${cols}</div>`;
+    $$('#calBody .cal-more').forEach((btn) => btn.onclick = () => { const list = btn.closest('.cal-wlist'); list.querySelectorAll('.cal-chip.cal-hidden').forEach((c) => c.classList.remove('cal-hidden')); btn.remove(); });
     $('#calDetail').innerHTML = '';
   } else { // month
     const first = new Date(calState.cursor.getFullYear(), calState.cursor.getMonth(), 1);
