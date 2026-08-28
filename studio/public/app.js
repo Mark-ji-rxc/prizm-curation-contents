@@ -1048,7 +1048,9 @@ function calFiltered() {
   });
 }
 function overlapsDay(p, d) { const { s, e } = dayMs(d); return p.start <= e && (p.end == null || p.end >= s); }
-function postsOnDay(d) { return calFiltered().filter((p) => overlapsDay(p, d)); }
+function postsOnDay(d) { return calFiltered().filter((p) => overlapsDay(p, d)); }       // 그 날 노출중(전시기간 겹침)
+function startsOnDay(d) { const { s, e } = dayMs(d); return calFiltered().filter((p) => p.start >= s && p.start <= e); } // 그 날 노출 시작
+function endsOnDay(d) { const { s, e } = dayMs(d); return calFiltered().filter((p) => p.end && p.end >= s && p.end <= e); }
 
 async function loadCalendar(force) {
   wireCalendar();
@@ -1089,10 +1091,9 @@ function renderCalendar() {
   if (calState.view === 'day') {
     const d = calState.cursor; label.textContent = fmtFull(d);
     const list = postsOnDay(d).sort((a, b) => a.start - b.start);
-    const starting = list.filter((p) => dayMs(d).s <= p.start && p.start <= dayMs(d).e);
-    const ending = list.filter((p) => p.end && dayMs(d).s <= p.end && p.end <= dayMs(d).e);
+    const starting = startsOnDay(d).length, ending = endsOnDay(d).length;
     body.innerHTML = `<div class="cal-day">
-      <div class="cal-day-h">${fmtFull(d)} · 노출 <b>${list.length}</b>건 <span class="muted sm">(오늘 시작 ${starting.length} · 종료 ${ending.length})</span></div>
+      <div class="cal-day-h">${fmtFull(d)} <span class="cal-cnt-live">노출중 ${list.length}건</span><span class="cal-cnt-start">노출 시작 ${starting}건</span>${ending ? `<span class="cal-cnt-end">종료 ${ending}건</span>` : ''}</div>
       <div class="cal-day-list">${list.map((p) => calRow(p, now, d)).join('') || '<div class="muted sm">이 날 노출되는 게시글이 없어요.</div>'}</div></div>`;
     $('#calDetail').innerHTML = '';
   } else if (calState.view === 'week') {
@@ -1100,9 +1101,10 @@ function renderCalendar() {
     label.textContent = `${fmtMD(start)} ~ ${fmtMD(addDays(start, 6))}`;
     let cols = '';
     for (let i = 0; i < 7; i++) {
-      const d = addDays(start, i); const on = postsOnDay(d).sort((a, b) => a.start - b.start);
+      const d = addDays(start, i); const on = postsOnDay(d).sort((a, b) => a.start - b.start); const st = startsOnDay(d).length;
       const isToday = startOfDay(new Date()).getTime() === d.getTime();
-      cols += `<div class="cal-wcol${isToday ? ' cal-td' : ''}"><div class="cal-wch"><span>${WD[d.getDay()]} ${fmtMD(d)}</span><span class="cal-wcount">${on.length}</span></div>
+      cols += `<div class="cal-wcol${isToday ? ' cal-td' : ''}"><div class="cal-wch"><span class="cal-wd">${WD[d.getDay()]} ${fmtMD(d)}</span>
+          <span class="cal-wcounts"><span class="cal-cnt-live" title="이 날 노출중">노출 ${on.length}</span><span class="cal-cnt-start" title="이 날 노출 시작">시작 ${st}</span></span></div>
         <div class="cal-wlist">${on.map((p) => postChip(p, now)).join('') || '<div class="cal-empty">·</div>'}</div></div>`;
     }
     body.innerHTML = `<div class="cal-week">${cols}</div>`;
@@ -1115,14 +1117,12 @@ function renderCalendar() {
     let cells = WD.map((w) => `<div class="cal-mh">${w}</div>`).join('');
     for (let i = 0; i < 42; i++) {
       const d = addDays(gridStart, i); const inMonth = d.getMonth() === first.getMonth();
-      const on = postsOnDay(d); const n = on.length;
-      const starting = on.filter((p) => dayMs(d).s <= p.start && p.start <= dayMs(d).e).length;
+      const n = postsOnDay(d).length; const starting = startsOnDay(d).length;
       const isToday = d.getTime() === todayMs;
       const heat = n === 0 ? '' : n < 3 ? ' h1' : n < 6 ? ' h2' : ' h3';
       cells += `<div class="cal-cell${inMonth ? '' : ' cal-off'}${isToday ? ' cal-td' : ''}${heat}" data-ts="${d.getTime()}">
         <div class="cal-cn">${d.getDate()}</div>
-        ${n ? `<div class="cal-cnum">${n}</div>` : ''}
-        ${starting ? `<div class="cal-cstart">▶ 시작 ${starting}</div>` : ''}</div>`;
+        <div class="cal-mcnts">${n ? `<span class="cal-cnt-live" title="노출중">노출 ${n}</span>` : ''}${starting ? `<span class="cal-cnt-start" title="노출 시작">시작 ${starting}</span>` : ''}</div></div>`;
     }
     body.innerHTML = `<div class="cal-month">${cells}</div>`;
     $$('#calBody .cal-cell').forEach((c) => c.onclick = () => { const d = new Date(+c.dataset.ts); showDayDetail(d); });
@@ -1132,8 +1132,8 @@ function renderCalendar() {
 function calRow(p, now, d) { const st = postStatus(p, now); const lbl = st === 'live' ? '노출중' : st === 'sched' ? '노출예정' : '종료'; const per = fmtFull(new Date(p.start)) + ' ~ ' + (p.end ? fmtFull(new Date(p.end)) : '무기한'); const domain = p.category === 'domestic' ? '국내' : p.category === 'overseas' ? '해외' : '공통'; return `<div class="cal-lrow cal-${st}"><span class="cal-badge cal-${st}">${lbl}</span><span class="cal-lt">${esc(p.title)}</span><span class="cal-lm">${domain} · ${esc(p.publisher || '')} · ${esc(per)}</span></div>`; }
 function showDayDetail(d) {
   const now = Date.now(); const list = postsOnDay(d).sort((a, b) => a.start - b.start);
-  const starting = list.filter((p) => dayMs(d).s <= p.start && p.start <= dayMs(d).e).length;
-  $('#calDetail').innerHTML = `<div class="cal-detail-h">${fmtFull(d)} · 노출 <b>${list.length}</b>건 <span class="muted sm">(이 날 시작 ${starting})</span></div>`
+  const starting = startsOnDay(d).length, ending = endsOnDay(d).length;
+  $('#calDetail').innerHTML = `<div class="cal-detail-h">${fmtFull(d)} <span class="cal-cnt-live">노출중 ${list.length}건</span><span class="cal-cnt-start">노출 시작 ${starting}건</span>${ending ? `<span class="cal-cnt-end">종료 ${ending}건</span>` : ''}</div>`
     + (list.map((p) => calRow(p, now, d)).join('') || '<div class="muted sm">이 날 노출되는 게시글이 없어요.</div>');
 }
 
