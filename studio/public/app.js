@@ -885,7 +885,7 @@ async function addCurrentToQueue() {
   } catch (e) { alert('추가 실패: ' + e.message); }
 }
 async function loadPubQueue() { const { items } = await api('/api/publish/queue'); pubQueue = items; $('#pubCount').textContent = items.length; }
-async function renderPublishStep() { try { await loadPubQueue(); } catch {} if (!pubCurrent() && pubQueue[0]) pubSel = pubQueue[0].id; renderPubList(); renderPubEditor(); }
+async function renderPublishStep() { try { await loadPubQueue(); } catch {} if (!pubCurrent() && pubQueue[0]) pubSel = pubQueue[0].id; renderPubList(); renderPubEditor(); loadCalendar(); }
 function pubCurrent() { return pubQueue.find((x) => x.id === pubSel); }
 
 function renderPubList() {
@@ -1015,6 +1015,118 @@ async function genDescriptions(it) {
   } catch (e) { if (gen) { gen.disabled = false; gen.textContent = '설명 자동생성'; } alert('실패: ' + e.message); }
 }
 
+
+// ── 노출 캘린더 (백오피스 게시글 · 전시기간 기준) ─────────────────────────────
+const calState = { view: 'week', scope: 'all', cursor: startOfDay(new Date()), live: true, sched: true, ended: false, posts: null, wired: false };
+function startOfDay(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+function addDays(d, n) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
+function dayMs(d) { const s = startOfDay(d).getTime(); return { s, e: s + 86400000 - 1 }; }
+const WD = ['일', '월', '화', '수', '목', '금', '토'];
+const fmtMD = (d) => `${d.getMonth() + 1}.${d.getDate()}`;
+const fmtFull = (d) => `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}(${WD[d.getDay()]})`;
+// 게시글의 현재시각 기준 상태
+function postStatus(p, now) { if (p.start && p.start > now) return 'sched'; if (p.end && p.end < now) return 'ended'; return 'live'; }
+function scopeOk(p) { return calState.scope === 'all' || (calState.scope === 'domestic' ? (p.category === 'domestic' || p.category === 'common') : (p.category === 'overseas' || p.category === 'common')); }
+// 현재 필터(도메인+상태)에 맞는 게시글(공개=PUBLIC만 노출로 간주)
+function calFiltered() {
+  const now = Date.now();
+  return (calState.posts || []).filter((p) => {
+    if (p.status !== 'PUBLIC') return false;
+    if (!p.start) return false;
+    if (!scopeOk(p)) return false;
+    const st = postStatus(p, now);
+    return (st === 'live' && calState.live) || (st === 'sched' && calState.sched) || (st === 'ended' && calState.ended);
+  });
+}
+function overlapsDay(p, d) { const { s, e } = dayMs(d); return p.start <= e && (p.end == null || p.end >= s); }
+function postsOnDay(d) { return calFiltered().filter((p) => overlapsDay(p, d)); }
+
+async function loadCalendar(force) {
+  wireCalendar();
+  const body = $('#calBody'); if (!body) return;
+  if (calState.posts === null || force) {
+    body.innerHTML = '<div class="muted sm">불러오는 중…</div>';
+    try { const r = await api('/api/office/posts' + (force ? '?force=1' : '')); calState.posts = r.posts || []; }
+    catch (e) { body.innerHTML = `<div class="cal-err">게시글을 불러오지 못했습니다: ${esc(e.message)}<br><span class="muted sm">세션이 만료됐다면 터미널에서 <code>node publish-login.js</code> 로 다시 로그인하세요.</span></div>`; return; }
+  }
+  renderCalendar();
+}
+function wireCalendar() {
+  if (calState.wired) return; calState.wired = true;
+  $('#calPrev').onclick = () => { calState.cursor = addDays(calState.cursor, calState.view === 'day' ? -1 : calState.view === 'week' ? -7 : -30); if (calState.view === 'month') calState.cursor = new Date(calState.cursor.getFullYear(), calState.cursor.getMonth(), 1); renderCalendar(); };
+  $('#calNext').onclick = () => { calState.cursor = addDays(calState.cursor, calState.view === 'day' ? 1 : calState.view === 'week' ? 7 : 30); if (calState.view === 'month') calState.cursor = new Date(calState.cursor.getFullYear(), calState.cursor.getMonth(), 1); renderCalendar(); };
+  $('#calToday').onclick = () => { calState.cursor = startOfDay(new Date()); renderCalendar(); };
+  $$('#calView .seg-b').forEach((b) => b.onclick = () => { calState.view = b.dataset.view; $$('#calView .seg-b').forEach((x) => x.classList.toggle('active', x === b)); if (calState.view === 'month') calState.cursor = new Date(calState.cursor.getFullYear(), calState.cursor.getMonth(), 1); renderCalendar(); });
+  $('#calScope').onchange = () => { calState.scope = $('#calScope').value; renderCalendar(); };
+  $('#calLive').onchange = () => { calState.live = $('#calLive').checked; renderCalendar(); };
+  $('#calSched').onchange = () => { calState.sched = $('#calSched').checked; renderCalendar(); };
+  $('#calEnded').onchange = () => { calState.ended = $('#calEnded').checked; renderCalendar(); };
+  $('#calRefresh').onclick = () => loadCalendar(true);
+}
+function calSummary() {
+  const now = Date.now();
+  let live = 0, sched = 0, ended = 0;
+  (calState.posts || []).filter((p) => p.status === 'PUBLIC' && p.start && scopeOk(p)).forEach((p) => { const s = postStatus(p, now); if (s === 'live') live++; else if (s === 'sched') sched++; else ended++; });
+  const today = postsOnDay(startOfDay(new Date())).length;
+  $('#calSummary').innerHTML =
+    `<span class="cal-pill cal-live">노출중 ${live}</span><span class="cal-pill cal-sched">노출예정 ${sched}</span><span class="cal-pill cal-ended">종료 ${ended}</span>`
+    + `<span class="cal-today-n">오늘 노출 <b>${today}</b>건</span>`;
+}
+function postChip(p, now) { const st = postStatus(p, now); const per = fmtMD(new Date(p.start)) + '~' + (p.end ? fmtMD(new Date(p.end)) : '무기한'); return `<div class="cal-chip cal-${st}" title="${esc(p.title)} · ${per} · ${esc(p.publisher)}"><span class="cal-dot"></span>${esc(p.title)}</div>`; }
+function renderCalendar() {
+  calSummary();
+  const now = Date.now();
+  const body = $('#calBody'); const label = $('#calRangeLabel');
+  if (calState.view === 'day') {
+    const d = calState.cursor; label.textContent = fmtFull(d);
+    const list = postsOnDay(d).sort((a, b) => a.start - b.start);
+    const starting = list.filter((p) => dayMs(d).s <= p.start && p.start <= dayMs(d).e);
+    const ending = list.filter((p) => p.end && dayMs(d).s <= p.end && p.end <= dayMs(d).e);
+    body.innerHTML = `<div class="cal-day">
+      <div class="cal-day-h">${fmtFull(d)} · 노출 <b>${list.length}</b>건 <span class="muted sm">(오늘 시작 ${starting.length} · 종료 ${ending.length})</span></div>
+      <div class="cal-day-list">${list.map((p) => calRow(p, now, d)).join('') || '<div class="muted sm">이 날 노출되는 게시글이 없어요.</div>'}</div></div>`;
+    $('#calDetail').innerHTML = '';
+  } else if (calState.view === 'week') {
+    const start = addDays(calState.cursor, -calState.cursor.getDay()); // 일요일 시작
+    label.textContent = `${fmtMD(start)} ~ ${fmtMD(addDays(start, 6))}`;
+    let cols = '';
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(start, i); const on = postsOnDay(d).sort((a, b) => a.start - b.start);
+      const isToday = startOfDay(new Date()).getTime() === d.getTime();
+      cols += `<div class="cal-wcol${isToday ? ' cal-td' : ''}"><div class="cal-wch"><span>${WD[d.getDay()]} ${fmtMD(d)}</span><span class="cal-wcount">${on.length}</span></div>
+        <div class="cal-wlist">${on.map((p) => postChip(p, now)).join('') || '<div class="cal-empty">·</div>'}</div></div>`;
+    }
+    body.innerHTML = `<div class="cal-week">${cols}</div>`;
+    $('#calDetail').innerHTML = '';
+  } else { // month
+    const first = new Date(calState.cursor.getFullYear(), calState.cursor.getMonth(), 1);
+    label.textContent = `${first.getFullYear()}년 ${first.getMonth() + 1}월`;
+    const gridStart = addDays(first, -first.getDay());
+    const todayMs = startOfDay(new Date()).getTime();
+    let cells = WD.map((w) => `<div class="cal-mh">${w}</div>`).join('');
+    for (let i = 0; i < 42; i++) {
+      const d = addDays(gridStart, i); const inMonth = d.getMonth() === first.getMonth();
+      const on = postsOnDay(d); const n = on.length;
+      const starting = on.filter((p) => dayMs(d).s <= p.start && p.start <= dayMs(d).e).length;
+      const isToday = d.getTime() === todayMs;
+      const heat = n === 0 ? '' : n < 3 ? ' h1' : n < 6 ? ' h2' : ' h3';
+      cells += `<div class="cal-cell${inMonth ? '' : ' cal-off'}${isToday ? ' cal-td' : ''}${heat}" data-ts="${d.getTime()}">
+        <div class="cal-cn">${d.getDate()}</div>
+        ${n ? `<div class="cal-cnum">${n}</div>` : ''}
+        ${starting ? `<div class="cal-cstart">▶ 시작 ${starting}</div>` : ''}</div>`;
+    }
+    body.innerHTML = `<div class="cal-month">${cells}</div>`;
+    $$('#calBody .cal-cell').forEach((c) => c.onclick = () => { const d = new Date(+c.dataset.ts); showDayDetail(d); });
+    $('#calDetail').innerHTML = '<div class="muted sm">날짜를 클릭하면 그 날 노출되는 게시글을 볼 수 있어요.</div>';
+  }
+}
+function calRow(p, now, d) { const st = postStatus(p, now); const lbl = st === 'live' ? '노출중' : st === 'sched' ? '노출예정' : '종료'; const per = fmtFull(new Date(p.start)) + ' ~ ' + (p.end ? fmtFull(new Date(p.end)) : '무기한'); const domain = p.category === 'domestic' ? '국내' : p.category === 'overseas' ? '해외' : '공통'; return `<div class="cal-lrow cal-${st}"><span class="cal-badge cal-${st}">${lbl}</span><span class="cal-lt">${esc(p.title)}</span><span class="cal-lm">${domain} · ${esc(p.publisher || '')} · ${esc(per)}</span></div>`; }
+function showDayDetail(d) {
+  const now = Date.now(); const list = postsOnDay(d).sort((a, b) => a.start - b.start);
+  const starting = list.filter((p) => dayMs(d).s <= p.start && p.start <= dayMs(d).e).length;
+  $('#calDetail').innerHTML = `<div class="cal-detail-h">${fmtFull(d)} · 노출 <b>${list.length}</b>건 <span class="muted sm">(이 날 시작 ${starting})</span></div>`
+    + (list.map((p) => calRow(p, now, d)).join('') || '<div class="muted sm">이 날 노출되는 게시글이 없어요.</div>');
+}
 
 // ── 초기화 ───────────────────────────────────────────────────────────────────
 (async function init() {

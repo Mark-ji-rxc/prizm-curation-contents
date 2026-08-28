@@ -223,6 +223,7 @@ function saveState(s) {
   return s;
 }
 let state = loadState();
+let officePostsCache = { at: 0, posts: [] }; // 백오피스 게시글 목록 캐시(캘린더용)
 
 // ── ⑥ 발행 큐(여러 콘텐츠를 발행 설정까지 준비해 대기, 그중 선택 등록) ──────────
 const PUBLISH_QUEUE_FILE = path.join(DIR, 'publish-queue.json');
@@ -1186,6 +1187,17 @@ const server = http.createServer(async (req, res) => {
       let playwrightOk = false; try { require.resolve('playwright'); playwrightOk = true; } catch {}
       const sessionOk = fs.existsSync(officeCfg.sessionFile);
       return sendJson(res, 200, { playwrightOk, sessionOk, baseUrl: officeCfg.baseUrl });
+    }
+    // 백오피스 게시글 목록(캘린더용) — 60초 캐시. force=1이면 갱신
+    if (p === '/api/office/posts' && req.method === 'GET') {
+      const now = Date.now();
+      const force = q.get('force') === '1';
+      if (!force && officePostsCache.at && (now - officePostsCache.at) < 60000) return sendJson(res, 200, { posts: officePostsCache.posts, fetchedAt: officePostsCache.at, cached: true });
+      try {
+        const posts = await require('./office-posts').fetchOfficePosts();
+        officePostsCache = { at: now, posts };
+        return sendJson(res, 200, { posts, fetchedAt: now, cached: false });
+      } catch (e) { return sendErr(res, 502, e.message); }
     }
 
     return sendErr(res, 404, 'unknown endpoint: ' + p);

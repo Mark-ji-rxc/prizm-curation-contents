@@ -344,6 +344,43 @@
       <p class="muted">여러 콘텐츠를 발행 설정까지 준비해 대기목록에 쌓고, 선택한 콘텐츠를 실제 백오피스에 등록합니다. (실제 등록 자동화는 Phase 2)</p></div>
       <button id="pubAddCurrent" class="btn sm">+ 현재 콘텐츠 추가</button>
     </div>
+
+    <!-- 노출 캘린더 — 백오피스 실제 게시글(스튜디오/백오피스 모두)을 전시기간 기준으로 -->
+    <div class="cal-wrap">
+      <div class="cal-head">
+        <div class="cal-title">노출 캘린더 <span class="muted sm">— 백오피스 실제 게시글 기준(전시기간)</span></div>
+        <div class="cal-nav">
+          <button id="calPrev" class="btn sm" aria-label="이전">‹</button>
+          <button id="calToday" class="btn sm">오늘</button>
+          <button id="calNext" class="btn sm" aria-label="다음">›</button>
+          <span id="calRangeLabel" class="cal-range"></span>
+        </div>
+      </div>
+      <div class="cal-controls">
+        <div class="seg" id="calView">
+          <button type="button" data-view="day" class="seg-b">하루</button>
+          <button type="button" data-view="week" class="seg-b active">일주일</button>
+          <button type="button" data-view="month" class="seg-b">한달</button>
+        </div>
+        <label class="cal-field">발행 도메인
+          <select id="calScope" class="input sm">
+            <option value="all">전체</option>
+            <option value="domestic">국내 (+공통)</option>
+            <option value="overseas">해외 (+공통)</option>
+          </select>
+        </label>
+        <div class="cal-status">
+          <label><input type="checkbox" id="calLive" checked /> 노출중</label>
+          <label><input type="checkbox" id="calSched" checked /> 노출예정</label>
+          <label><input type="checkbox" id="calEnded" /> 종료</label>
+        </div>
+        <button id="calRefresh" class="btn sm">새로고침</button>
+      </div>
+      <div id="calSummary" class="cal-summary"></div>
+      <div id="calBody" class="cal-body"><div class="muted sm">불러오는 중…</div></div>
+      <div id="calDetail" class="cal-detail"></div>
+    </div>
+
     <div class="publish-layout">
       <aside class="pub-queue">
         <div class="pub-queue-h">발행 대기목록 (<span id="pubCount">0</span>)</div>
