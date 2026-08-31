@@ -182,14 +182,23 @@ function bodyLenValues() {
   return { bodyMin: a || 100, bodyMax: b || 300 };
 }
 $('#cBodyLen') && $('#cBodyLen').addEventListener('change', () => { $('#cBodyLenCustom').classList.toggle('hidden', $('#cBodyLen').value !== 'custom'); });
+function regionModeOn() { return !!($('#cRegionMode') && $('#cRegionMode').checked); }
 function commonBody() {
-  const b = { scope: $('#cScope').value, region: $('#cRegion').value.trim(), condition: $('#cCondition').value, until: $('#cUntil').value, webSearch: $('#cWeb').checked, model: $('#cModel').value, ...bodyLenValues() };
-  if (pickCodes.size) b.productCodes = [...pickCodes];
-  if (selTypes.size) b.productTypes = [...selTypes];
+  const region = regionModeOn();
+  const b = { scope: $('#cScope').value, region: $('#cRegion').value.trim(), condition: $('#cCondition').value, until: $('#cUntil').value, webSearch: region ? true : $('#cWeb').checked, model: $('#cModel').value, regionMode: region, ...bodyLenValues() };
+  if (!region && pickCodes.size) b.productCodes = [...pickCodes];   // 지역모드는 상품 조건 무시
+  if (!region && selTypes.size) b.productTypes = [...selTypes];
   return b;
 }
+// 지역 기반 콘텐츠 토글: 웹검색 강제 ON+잠금, 상품 관련 UI 흐리게, 생성 게이트 갱신
+$('#cRegionMode') && $('#cRegionMode').addEventListener('change', () => {
+  const on = $('#cRegionMode').checked;
+  const web = $('#cWeb'); if (web) { if (on) { web.checked = true; web.disabled = true; } else { web.disabled = false; } }
+  const ps = $('#productScope'); if (ps) ps.classList.toggle('dimmed', on);
+  updateGenGate();
+});
 async function submitGeneration(extra) {
-  if (typeTotal === 0 && !pickCodes.size) return alert('선택한 지역·판매조건에 해당하는 상품이 없어 콘텐츠를 생성할 수 없어요. 조건을 바꿔주세요.');
+  if (typeTotal === 0 && !pickCodes.size && !regionModeOn()) return alert('선택한 지역·판매조건에 해당하는 상품이 없어 콘텐츠를 생성할 수 없어요. 조건을 바꿔주세요.');
   const body = { ...commonBody(), ...extra };
   // 생성 scope로 분류를 미리 기록: 국내 생성=국내 호텔, 해외 생성=해외 여행상품.
   // 단, 상품 타입/직접선택은 양쪽 데이터셋을 넘나들 수 있어 매칭 상품으로 서버가 판정하도록 비워둠.
@@ -255,7 +264,7 @@ function renderTypeChips() {
 }
 // 전체 상품이 0개(직접 선택도 없음)면 콘텐츠 생성 버튼들을 비활성화 + 안내
 function updateGenGate() {
-  const empty = (typeTotal === 0) && !pickCodes.size; // 조건에 맞는 상품이 하나도 없음
+  const empty = (typeTotal === 0) && !pickCodes.size && !regionModeOn(); // 조건에 맞는 상품이 하나도 없음(지역모드는 상품 불필요)
   ['#genContent', '#matchContent', '#genBrief'].forEach((id) => { const b = $(id); if (b) b.disabled = empty; });
   const note = $('#genEmptyNote'); if (note) note.classList.toggle('hidden', !empty);
 }

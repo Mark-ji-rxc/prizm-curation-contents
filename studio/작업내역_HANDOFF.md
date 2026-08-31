@@ -128,6 +128,8 @@ PRIZM 콘텐츠 제작 전 과정( **크롤링 → 콘텐츠 생성 → 상품 �
 
 ## 변경 이력
 
+- **2026-08-31 (지역 기반 콘텐츠 모드)**: 상품과 무관하게 **지역 자체를 주제로** 콘텐츠 생성하는 모드 추가(국내/해외 공통). ② 대상 상품 범위에 체크박스 `#cRegionMode`("지역 기반 콘텐츠"). 켜면: 인터넷 검색 강제 ON+잠금(#cWeb checked+disabled), 상품 관련 UI(#productScope) dim+비활성, 생성 게이트 우회(상품 0개여도 생성 가능). commonBody가 `regionMode`+`webSearch:true` 주입, 상품 조건(코드/타입) 미전송. server `buildContentJob(regionMode)`: 지역 후보=선택 지역 1개 또는 `regionList(scope)` 전체, web 강제, 전용 지시문(상품·숙소·가격 언급 금지·matched 빈배열·특산물/장점/가야할이유/요즘 트렌드에 포커스·WebSearch 필수), rules.상품매칭/주의 override, productCount=지역수(≥1)로 400 회피, products 빈배열, output item에 region/hotels:[지역]/matched:[]. 검증(8793): 국내 전체→후보 8지역·해외 나트랑→1지역, webSearch=true·products 0·no-product 규칙 정상. UI: 토글 ON시 web잠금·scope dim·regionMode/webSearch true·게이트 통과 확인.
+
 - **2026-08-31 (캘린더 세션 만료 경고 배너)**: 로그인 세션(JWT) 만료 임박/만료 시 캘린더 상단에 경고 배너. office-posts `sessionInfo()`(로컬 토큰 exp 디코드, 네트워크 없음: {exists,exp,expired,expiresInMs}) + 엔드포인트 `GET /api/office/session`. 클라 `renderSessionWarn()`가 loadCalendar 시 호출 — 만료/세션없음=빨강(warn-err), 24시간 이내=주황(warn-soon, "M월 D일 HH:MM · 약 N시간 뒤"), 그 외 숨김. 문구는 "매니저 오피스에 다시 로그인해 주세요" + 단계(터미널 `node publish-login.js`→브라우저 로그인→Enter→새로고침). 검증(8790): 4상태(soon/expired/none/valid) 모두 정확한 클래스·문구·숨김 렌더. ※ 참고: 세션 토큰 만료 주기 약 6일, 만료 시 캘린더·자동발행 모두 재로그인 필요.
 
 - **2026-08-28 (주간 요일별 15개 + 더보기)**: 주간 뷰 각 요일 컬럼이 게시글을 **최대 15개(WEEK_CHIP_LIMIT)**만 표시하고 초과분은 `.cal-hidden`으로 접은 뒤 "＋ N개 더보기" 버튼(.cal-more) 노출. postChip에 클래스 인자 추가, 버튼 클릭 시 그 컬럼의 숨은 칩 표시+버튼 제거. 검증(8790): 금 8.28 total36→visible15+"＋21개 더보기", 클릭 후 36개 전체 표시·버튼 제거.
