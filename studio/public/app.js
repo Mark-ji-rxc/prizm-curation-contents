@@ -1054,8 +1054,25 @@ function endsOnDay(d) { const { s, e } = dayMs(d); return calFiltered().filter((
 // 리스트 정렬: 그 날 노출 시작하는 항목을 먼저, 그 다음 시작시각 순
 function startsFirst(d) { const { s, e } = dayMs(d); const on = (p) => (p.start >= s && p.start <= e) ? 0 : 1; return (a, b) => on(a) - on(b) || a.start - b.start; }
 
+// 로그인 세션 만료 임박/만료 경고 배너(24시간 이내면 경고)
+async function renderSessionWarn() {
+  const el = $('#calSessionWarn'); if (!el) return;
+  let s; try { s = await api('/api/office/session'); } catch { el.classList.add('hidden'); return; }
+  const how = '<b>매니저 오피스에 다시 로그인해 주세요.</b><br><span class="warn-how">터미널에서 <code>node publish-login.js</code> 실행 → 열리는 브라우저에서 로그인 → 터미널로 돌아와 Enter → 캘린더 "새로고침"</span>';
+  if (!s.exists) { el.className = 'cal-warn warn-err'; el.innerHTML = `백오피스 로그인 세션이 없습니다. ${how}`; return; }
+  if (s.expired) { el.className = 'cal-warn warn-err'; el.innerHTML = `⚠ 매니저 오피스 로그인 세션이 만료됐습니다. ${how}`; return; }
+  const ms = s.expiresInMs || 0;
+  if (ms > 0 && ms < 24 * 3600 * 1000) {
+    const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+    const when = new Date(s.exp).toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    el.className = 'cal-warn warn-soon'; el.innerHTML = `⏰ 매니저 오피스 로그인 세션이 곧 만료됩니다 — ${esc(when)} (약 ${h}시간 ${m}분 뒤). 지금 미리 다시 로그인해 두세요.<br><span class="warn-how">터미널에서 <code>node publish-login.js</code> 실행 → 로그인 → Enter.</span>`;
+    return;
+  }
+  el.className = 'cal-warn hidden';
+}
 async function loadCalendar(force) {
   wireCalendar();
+  renderSessionWarn();
   const body = $('#calBody'); if (!body) return;
   if (calState.posts === null || force) {
     body.innerHTML = '<div class="muted sm">불러오는 중…</div>';

@@ -1207,6 +1207,8 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { posts, fetchedAt: now, cached: false });
       } catch (e) { return sendErr(res, 502, e.message); }
     }
+    // 로그인 세션 만료 정보(네트워크 없이 로컬 토큰 디코드) — 만료 임박 경고용
+    if (p === '/api/office/session' && req.method === 'GET') { return sendJson(res, 200, require('./office-posts').sessionInfo()); }
 
     return sendErr(res, 404, 'unknown endpoint: ' + p);
   } catch (e) {

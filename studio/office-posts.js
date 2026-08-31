@@ -51,4 +51,14 @@ async function fetchOfficePosts() {
   return out;
 }
 
-module.exports = { fetchOfficePosts };
+// 로그인 세션(JWT) 만료 정보 — 네트워크 없이 로컬 토큰만 디코드. 만료 임박 경고용.
+function decodeExp(token) { try { const p = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString()); return p.exp ? p.exp * 1000 : null; } catch { return null; } }
+function sessionInfo() {
+  try {
+    const token = readToken();
+    const exp = decodeExp(token); const now = Date.now();
+    return { exists: true, exp, expired: exp != null && exp < now, expiresInMs: exp != null ? exp - now : null };
+  } catch (e) { return { exists: false, error: e.message }; }
+}
+
+module.exports = { fetchOfficePosts, sessionInfo };

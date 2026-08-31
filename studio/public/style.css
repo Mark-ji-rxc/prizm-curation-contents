@@ -366,6 +366,11 @@ label.block { margin-top: var(--sp-2); }
 .cal-today-n { font-size: var(--fs-desc); color: var(--muted); margin-left: auto; }
 .cal-today-n b { color: var(--ink); font-size: var(--fs-body); }
 .cal-err { color: var(--warn); font-size: var(--fs-desc); padding: var(--sp-2); }
+.cal-warn { font-size: var(--fs-desc); padding: 9px 12px; border-radius: 8px; margin-bottom: var(--sp-2); border: 1px solid transparent; }
+.cal-warn code { background: rgba(0,0,0,.06); padding: 1px 6px; border-radius: 4px; }
+.cal-warn.warn-soon { color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+.cal-warn.warn-err { color: #dc2626; background: color-mix(in srgb, #dc2626 9%, transparent); border-color: color-mix(in srgb, #dc2626 28%, transparent); }
+.cal-warn .warn-how { display: inline-block; margin-top: 3px; font-size: var(--fs-meta); opacity: .9; }
 /* 상태색 공통 */
 .cal-live .cal-dot, .cal-chip.cal-live .cal-dot { background: var(--ok); }
 .cal-sched .cal-dot { background: var(--accent); }
