@@ -2,6 +2,7 @@
 // PRIZM 피드 카드 미리보기 3종 렌더러 (전역 window.renderPrizmPreviews)
 (function () {
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const specHtml = (text, spec) => { let h = esc(text || ''); (spec || []).forEach((s) => { const e = esc(String(s || '').trim()); if (e && h.includes(e)) h = h.split(e).join('<span class="spec-txt">' + e + '</span>'); }); return h; };
   const won = (n) => (n == null || n === '' ? '' : Number(n).toLocaleString('ko-KR') + '원');
   const thumb = (nasPath) => `/api/thumb?path=${encodeURIComponent(nasPath)}&size=large&`;
   const keyOf = (m) => String(m.productCode || m.productId || m.productName || '');
@@ -15,7 +16,7 @@
     return `<div class="head"><div class="avatar"></div>
         <div class="head-t"><div class="who">${esc(persona)}${hotelLabel ? ' › ' + hotelLabel : ''}</div>
         <div class="ttl">${esc(content.title)}</div></div></div>
-      <div class="desc-wrap"><div class="desc">${esc(body)}</div><span class="more" hidden>더보기</span></div>`;
+      <div class="desc-wrap"><div class="desc">${specHtml(body, content.speculative)}</div><span class="more" hidden>더보기</span></div>`;
   }
   // 상품 카드(상품코드/ID 미표기 — 요청 반영)
   function goodsChip(m, cls) {

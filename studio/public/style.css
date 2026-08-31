@@ -342,6 +342,10 @@ label.block { margin-top: var(--sp-2); }
 
 .len-inputs { display: inline-flex; align-items: center; gap: 6px; }
 .len-inputs .input { width: 78px; }
+/* 추측성(미검증) 문장 강조 — 데이터·검색으로 확인 안 된 문장 */
+.spec-txt { color: #c2410c; background: color-mix(in srgb, #c2410c 9%, transparent); border-bottom: 1px dotted #c2410c; border-radius: 2px; padding: 0 1px; }
+@media (prefers-color-scheme: dark) { .spec-txt { color: #fb923c; border-bottom-color: #fb923c; } }
+.spec-note { margin-top: 6px; font-size: var(--fs-meta); color: #c2410c; }
 .region-mode { display: block; margin: var(--sp-2) 0; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-size: var(--fs-desc); }
 .region-mode:has(#cRegionMode:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
 #productScope.dimmed { opacity: .4; pointer-events: none; }

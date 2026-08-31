@@ -613,6 +613,9 @@ function compactForJob(items) {
 function buildContentJob({ topic, count, perTopic, forms, scope, region, form, persona, condition, until, productCodes, productTypes, mode, userTitle, userBody, model, brief, webSearch, bodyMin, bodyMax, regionMode }) {
   const per = Math.max(1, Number(perTopic) || 1);
   const web = !!webSearch || !!regionMode; // 지역 기반 콘텐츠는 인터넷 검색 필수
+  // 사실 근거 + 추측 표기 규칙(모든 생성 모드 공통): 데이터에 없는 구체정보는 검색으로 확인, 못 하면 추측 처리
+  const factRule = '★ 사실 근거·추측 표기(중요): 숙소의 전망(오션뷰 등)·객실 시설(스파/풀 등)·위치 근접성("~에 가깝다","시내와 가까움") 같은 구체 사실은 products 데이터(상품명·benefits/flags)에 있는 것만 단정한다. 데이터에 없으면 반드시 인터넷 검색(WebSearch)으로 확인 — 확인되면 단정, 확인 안 되면 그 문장은 추측 어투("~인 듯","~라고 해요","아마")로 쓰고 그 문장 "원문 그대로"를 output.speculative 배열에 담는다. 검색 자체를 못 하는 상황이면 불확실한 구체정보는 아예 쓰지 말 것. 근거 없는 허위·과장 금지.';
+  const specFmt = ', "speculative": ["(추측성으로 쓴 문장 원문, 없으면 생략/빈배열)"]';
   // 본문 글자수 범위(조정 가능). 기본 100~300자. 값이 오면 20~2000자로 클램프하고 min<max 보장.
   let bMin = Math.round(Number(bodyMin)) || 100, bMax = Math.round(Number(bodyMax)) || 300;
   bMin = Math.min(Math.max(bMin, 20), 2000); bMax = Math.min(Math.max(bMax, 20), 2000);
@@ -660,9 +663,10 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       '3) 각 콘텐츠에 titleAlternatives(제목 다른 후보 2~4개, 각 후보에 한 줄 근거)를 포함한다.',
       '4) 브리프·여행지에 맞는 products 를 matched 에(관련 상품만, productId·productCode 둘 다). hotels(중복 제거)도 채운다. input.persona 있으면 화자로, form 은 어울리는 형으로.',
       refLine,
+      factRule,
       insLine,
       '5) 완료 시 status "done", output.items 는 정확히 input.count 개.',
-      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "②장면·몰입형", "persona": "", "titleAlternatives": [ {"title":"...","reason":"..."} ], "hotels": [...], "matched": [ {"productId":"99500","productCode":"2gx2yiq8","hotel":"...","productName":"...","price":123000,"url":"https://...","status":"판매중"} ] } ] }',
+      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "②장면·몰입형", "persona": "", "titleAlternatives": [ {"title":"...","reason":"..."} ], "hotels": [...], "matched": [ {"productId":"99500","productCode":"2gx2yiq8","hotel":"...","productName":"...","price":123000,"url":"https://...","status":"판매중"} ]' + specFmt + ' } ] }',
     ].filter(Boolean).join('\n');
   } else if (regionMode) {
     const scopeKo = scope === 'overseas' ? '해외' : '국내';
@@ -677,10 +681,11 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       '2) ★★ 절대 규칙: 상품/숙소/호텔/패키지/객실/가격/할인/예약을 일절 언급하지 않는다. matched 는 반드시 빈 배열 []. 판매·구매 유도 금지 — 지역의 매력과 정보 전달에만 집중.',
       `3) 제목 8~16자, 본문 ${bodyRule}, 하우스 보이스(친근한 반말+존댓말 마무리). 지역명을 자연스럽게 녹이고, 읽는 사람이 "그 지역에 가보고 싶다"는 마음이 들도록 구체적·생생하게. 상투구·일반론 금지.`,
       bodyLenNote,
+      factRule,
       '4) 각 콘텐츠에 titleAlternatives(제목 후보 2~4개, 한 줄 근거) 포함. input.persona 있으면 화자로, input.forms 있으면 어울리는 형으로.',
       insLine,
       '5) 완료 시 status "done", output.items 는 정확히 input.count 개.',
-      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "④팁·정보형", "persona": "", "region": "(대상 지역명)", "titleAlternatives": [ {"title":"...","reason":"..."} ], "hotels": ["(대상 지역명)"], "matched": [] } ] }',
+      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "④팁·정보형", "persona": "", "region": "(대상 지역명)", "titleAlternatives": [ {"title":"...","reason":"..."} ], "hotels": ["(대상 지역명)"], "matched": []' + specFmt + ' } ] }',
     ].filter(Boolean).join('\n');
   } else {
     instructions = [
@@ -701,9 +706,10 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       '6) 각 콘텐츠에 matched(productId·productCode 둘 다)와 hotels(중복 제거) 채운다. 여행지/명물은 사실확인 후 필요시 web 검색.',
       '7) 완료 시 status "done", output.items 는 정확히 count×perTopic 개.',
       webLineGen,
+      factRule,
       refLine,
       insLine,
-      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "④팁·정보형", "persona": "「호텔 사용설명서」", "hotels": [...], "matched": [ {"productId":"99500","productCode":"2gx2yiq8","hotel":"...","productName":"...","price":123000,"url":"https://...","status":"판매중"} ] } ] }',
+      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "④팁·정보형", "persona": "「호텔 사용설명서」", "hotels": [...], "matched": [ {"productId":"99500","productCode":"2gx2yiq8","hotel":"...","productName":"...","price":123000,"url":"https://...","status":"판매중"} ]' + specFmt + ' } ] }',
     ].filter(Boolean).join('\n');
   }
   const rulesForJob = { ...CONTENT_RULES, 본문: `${bodyRule}. 무엇이 좋은지 + 왜 이렇게 묶었는지를 고객 상황에서 와닿게. (스튜디오에서 지정한 본문 길이)` };

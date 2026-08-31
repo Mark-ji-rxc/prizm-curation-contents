@@ -4,6 +4,12 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const api = async (path, opts) => { const r = await fetch(path, opts); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.status); return j; };
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// 본문 렌더: 추측성(미검증) 문장(speculative[])을 다른 색으로 표기. body는 원문 그대로 저장/등록됨.
+function specHtml(text, spec) {
+  let h = esc(text || '');
+  (spec || []).forEach((s) => { const e = esc(String(s || '').trim()); if (e && h.includes(e)) h = h.split(e).join('<span class="spec-txt" title="추측성(미검증)">' + e + '</span>'); });
+  return h;
+}
 const won = (n) => (n == null || n === '' ? '' : Number(n).toLocaleString('ko-KR') + '원');
 
 let productSource = 'domestic';
@@ -352,7 +358,8 @@ function cardInner(it) {
     ? `<div class="alts"><b>제목 후보</b><ul>${it.titleAlternatives.map((a) => `<li>${esc(a.title || a)}${a.reason ? ` <span class="muted">— ${esc(a.reason)}</span>` : ''}</li>`).join('')}</ul></div>` : '';
   return `<h3>${esc(it.title)}</h3>
     <div class="meta">${it.form ? `<span class="badge">${esc(it.form)}</span>` : ''}${it.persona ? `<span class="badge">${esc(it.persona)}</span>` : ''}</div>
-    <div class="body">${esc(it.body)}</div>
+    <div class="body">${specHtml(it.body, it.speculative)}</div>
+    ${(it.speculative && it.speculative.length) ? '<div class="spec-note">색이 다른 문장 = 추측성(데이터·검색으로 미확인). 발행 전 확인하세요.</div>' : ''}
     ${alts}
     <div class="hotels"><b>매칭 호텔/여행지 (${hotels.length})</b><div class="meta">${hotelChips}</div></div>
     <div class="matched"><b>매칭 상품 ${it.matched ? '(' + it.matched.length + '개)' : ''}</b><ul>${matched}</ul></div>`;
@@ -712,7 +719,7 @@ function setupImageStep() {
     <div class="side-block">
       <div class="side-h">선택 콘텐츠</div>
       <div class="side-title">${esc(selectedContent.title)}</div>
-      <div class="side-body">${esc(body)}</div>
+      <div class="side-body">${specHtml(body, selectedContent.speculative)}</div>
     </div>
     <div class="side-block">
       <div class="side-h">선택 ${exposureType === 'showroom' ? '쇼룸' : '상품'} (${src.length})</div>
