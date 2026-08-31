@@ -128,6 +128,8 @@ PRIZM 콘텐츠 제작 전 과정( **크롤링 → 콘텐츠 생성 → 상품 �
 
 ## 변경 이력
 
+- **2026-08-31 (상품 직접선택 호텔·여행지 검색형)**: 상품 직접선택 피커의 `#pkHotel`을 `<select>`→**검색형 input+datalist**(#pkHotelList)로 변경. 키워드 입력 시 fillPickHotels가 입력값 부분일치로 후보(datalist) 필터(최대 300), pickFiltered의 호텔 매칭도 정확일치→**부분일치(대소문자 무시)**로. #pkHotel input 이벤트에 fillPickHotels 추가. 검증(8790): input 전환·"가평"→후보10 전부 가평·상품 63개·"강릉"→강릉만.
+
 - **2026-08-31 (사실 검증 강화 + 추측성 문장 색 표기)**: 크롤 데이터에 없는 구체 사실(전망·시설·위치 근접성)은 **인터넷 검색으로 확인**, 확인 안 되면 추측 어투로 쓰고 `speculative[]`(문장 원문)에 담아 **스튜디오에서 다른 색으로 표기**(사용자가 어떤 내용이 추측인지 파악→재확인 목적). server buildContentJob에 `factRule`(모든 모드 공통)+`specFmt` 추가, output 형식에 speculative 필드(generate·brief·region 3모드). 프론트: `specHtml(text,spec)`가 speculative 문장을 `.spec-txt`(주황 #c2410c, 점선밑줄)로 감쌈 — 생성카드(cardInner)·미리보기 side-body·preview.js head 공통. body 원문은 그대로 저장/등록(색은 표시용 메타, 백오피스엔 speculative 미전송). 카드에 안내문(.spec-note). 검증(8790): mock speculative 문장 span 1개·색 rgb(194,65,12)·안내문 표시. 지시문에 factRule·output speculative 반영 확인. 가이드 md에 "사실 근거·추측" 규칙 추가.
 
 - **2026-08-31 (지역 기반 콘텐츠 모드)**: 상품과 무관하게 **지역 자체를 주제로** 콘텐츠 생성하는 모드 추가(국내/해외 공통). ② 대상 상품 범위에 체크박스 `#cRegionMode`("지역 기반 콘텐츠"). 켜면: 인터넷 검색 강제 ON+잠금(#cWeb checked+disabled), 상품 관련 UI(#productScope) dim+비활성, 생성 게이트 우회(상품 0개여도 생성 가능). commonBody가 `regionMode`+`webSearch:true` 주입, 상품 조건(코드/타입) 미전송. server `buildContentJob(regionMode)`: 지역 후보=선택 지역 1개 또는 `regionList(scope)` 전체, web 강제, 전용 지시문(상품·숙소·가격 언급 금지·matched 빈배열·특산물/장점/가야할이유/요즘 트렌드에 포커스·WebSearch 필수), rules.상품매칭/주의 override, productCount=지역수(≥1)로 400 회피, products 빈배열, output item에 region/hotels:[지역]/matched:[]. 검증(8793): 국내 전체→후보 8지역·해외 나트랑→1지역, webSearch=true·products 0·no-product 규칙 정상. UI: 토글 ON시 web잠금·scope dim·regionMode/webSearch true·게이트 통과 확인.

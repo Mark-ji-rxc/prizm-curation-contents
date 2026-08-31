@@ -105,7 +105,7 @@
     <div id="pickerPanel" class="hidden">
       <div class="filters">
         <select id="pkSource" class="input sm"><option value="">국내+해외</option><option value="domestic">국내</option><option value="overseas">해외</option></select>
-        <select id="pkHotel" class="input sm"><option value="">호텔·여행지 전체</option></select>
+        <input id="pkHotel" class="input sm" list="pkHotelList" placeholder="호텔·여행지 검색(전체)" /><datalist id="pkHotelList"></datalist>
         <select id="pkType" class="input sm"><option value="">종류 전체</option></select>
         <input id="pkKeyword" class="input sm" placeholder="상품명 검색" />
         <button id="pkClear" class="btn sm ghost">선택 해제</button>

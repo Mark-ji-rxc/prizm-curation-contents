@@ -280,7 +280,7 @@ $('#genBrief').onclick = () => { const brief = $('#bBrief').value.trim(); if (!b
 
 $('#togglePicker').onclick = async () => { const el = $('#pickerPanel'); const show = el.classList.contains('hidden'); el.classList.toggle('hidden'); if (show && !pickerRows.length) await loadPicker(); };
 $('#pkClear').onclick = () => { pickCodes.clear(); $('#pickCount').textContent = 0; renderPicker(); updateGenGate(); };
-['#pkSource', '#pkHotel', '#pkType', '#pkKeyword'].forEach((s) => $(s).addEventListener('input', () => { if (s === '#pkSource' || s === '#pkType') fillPickHotels(); renderPicker(); }));
+['#pkSource', '#pkHotel', '#pkType', '#pkKeyword'].forEach((s) => $(s).addEventListener('input', () => { if (s === '#pkSource' || s === '#pkType' || s === '#pkHotel') fillPickHotels(); renderPicker(); }));
 async function loadPicker() {
   try { const { rows } = await api('/api/products/pick'); pickerRows = rows; fillPickTypes(); fillPickHotels(); renderPicker(); }
   catch (e) { $('#pickerList').innerHTML = '오류: ' + esc(e.message); }
@@ -292,15 +292,16 @@ function fillPickTypes() {
 function fillPickHotels() {
   const src = $('#pkSource').value, type = $('#pkType').value;
   const names = [...new Set(pickerRows.filter((r) => (!src || r.source === src) && (!type || r.type === type)).map((r) => r.hotel || r.region).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
-  const cur = $('#pkHotel').value;
-  $('#pkHotel').innerHTML = '<option value="">호텔·여행지 전체</option>' + names.map((n) => `<option>${esc(n)}</option>`).join('');
-  if (names.includes(cur)) $('#pkHotel').value = cur;
+  // 검색형 입력: 입력한 키워드에 맞는 호텔·여행지만 datalist 후보로 노출(입력값이 있으면 부분일치 필터)
+  const q = ($('#pkHotel').value || '').trim().toLowerCase();
+  const cands = q ? names.filter((n) => n.toLowerCase().includes(q)) : names;
+  $('#pkHotelList').innerHTML = cands.slice(0, 300).map((n) => `<option value="${esc(n)}"></option>`).join('');
 }
 function pickFiltered() {
-  const src = $('#pkSource').value, hotel = $('#pkHotel').value, type = $('#pkType').value, kw = $('#pkKeyword').value.trim();
+  const src = $('#pkSource').value, hotel = $('#pkHotel').value.trim(), type = $('#pkType').value, kw = $('#pkKeyword').value.trim();
   return pickerRows.filter((r) => {
     if (src && r.source !== src) return false;
-    if (hotel && (r.hotel || r.region) !== hotel) return false;
+    if (hotel && !(`${r.hotel || ''} ${r.region || ''}`).toLowerCase().includes(hotel.toLowerCase())) return false; // 부분일치
     if (type && r.type !== type) return false;
     if (kw && !(`${r.hotel} ${r.region} ${r.name}`).includes(kw)) return false;
     return true;
