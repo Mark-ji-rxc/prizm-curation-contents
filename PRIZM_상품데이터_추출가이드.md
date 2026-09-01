@@ -66,7 +66,7 @@ PRIZM 모바일웹(`https://mweb.prizm.co.kr`)에서 **지역별 호텔·상품 
 
 ```bash
 # 터미널에서 스크립트가 있는 폴더로 이동
-cd "/Users/rxc/Desktop/claude code/contetents maker"
+cd "/Users/rxc/Desktop/claude code/contents maker"
 
 # 1) 특정 지역만 (가장 흔한 사용법)
 node prizm_crawler.js --regions 서울

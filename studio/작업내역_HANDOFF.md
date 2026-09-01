@@ -1,7 +1,7 @@
 # PRIZM 콘텐츠 스튜디오 — 작업 인수인계 (HANDOFF)
 
 > 다른 Claude(또는 담당자)가 이 문서만 보고 이어서 작업할 수 있도록 정리한 문서.
-> 위치: `contetents maker/studio/` · 무의존성 Node.js(내장 모듈만, `npm install` 불필요) · Node 18+.
+> 위치: `contents maker/studio/` · 무의존성 Node.js(내장 모듈만, `npm install` 불필요) · Node 18+.
 > **작업 완료 시마다 이 문서를 갱신한다.** (하단 "변경 이력"에 追記)
 
 ---
@@ -11,7 +11,7 @@
 PRIZM 콘텐츠 제작 전 과정( **크롤링 → 콘텐츠 생성 → 상품 선택 → 이미지 찾기 → 미리보기 → (차후)등록** )을
 한 화면(단계 위저드)으로 묶은 로컬 웹앱. 기존 크롤러 2종과 image-picker를 재사용한다.
 
-- 실행: `cd "contetents maker/studio" && node server.js` → http://localhost:8790 (더블클릭: `실행.command`)
+- 실행: `cd "contents maker/studio" && node server.js` → http://localhost:8790 (더블클릭: `실행.command`)
 - 실행설정: 루트 `.claude/launch.json` 의 `prizm-studio` (포트 8790, image-picker 8787과 분리)
 
 ### ⛔ 절대 원칙 3가지
@@ -128,6 +128,8 @@ PRIZM 콘텐츠 제작 전 과정( **크롤링 → 콘텐츠 생성 → 상품 �
 
 ## 변경 이력
 
+- **2026-09-01 (폴더 정리·이름변경 contetents→contents maker)**: 프로젝트 폴더명을 `contetents maker`→**`contents maker`** 로 변경. 콘텐츠 생성에 미사용인 원본 md 4개(`큐레이션_본문_10형x26주제_전체`·`변주_10형_전체`·`변주_6형`·`화자_페르소나_제안`)를 홈에서 `contents maker/_원본자료/`로 이동(런타임 참조 없음, 보관용). 별개 앱 `hotel-settlement`(해외호텔 정산금 계산기)는 `/Users/rxc/Desktop/claude code/hotel-settlement`로 이동(레포 밖). 경로 참조 갱신: `.claude/launch.json`(runtimeArgs), `studio/studio.config.json`(referenceRepoDir, 로컬), 코드 주석(crawl.js·content.js), 문서(HANDOFF 2개·image-picker README·PRIZM 가이드 2개), 홈 메모리 md 3개. 코드는 `__dirname` 상대경로라 기능 영향 없음. 검증: 새 경로에서 서버 기동·NAS ready·크롤 1330/85·regions 정상.
+
 - **2026-08-31 (상품 직접선택 호텔·여행지 검색형)**: 상품 직접선택 피커의 `#pkHotel`을 `<select>`→**검색형 input+datalist**(#pkHotelList)로 변경. 키워드 입력 시 fillPickHotels가 입력값 부분일치로 후보(datalist) 필터(최대 300), pickFiltered의 호텔 매칭도 정확일치→**부분일치(대소문자 무시)**로. #pkHotel input 이벤트에 fillPickHotels 추가. 검증(8790): input 전환·"가평"→후보10 전부 가평·상품 63개·"강릉"→강릉만.
 
 - **2026-08-31 (사실 검증 강화 + 추측성 문장 색 표기)**: 크롤 데이터에 없는 구체 사실(전망·시설·위치 근접성)은 **인터넷 검색으로 확인**, 확인 안 되면 추측 어투로 쓰고 `speculative[]`(문장 원문)에 담아 **스튜디오에서 다른 색으로 표기**(사용자가 어떤 내용이 추측인지 파악→재확인 목적). server buildContentJob에 `factRule`(모든 모드 공통)+`specFmt` 추가, output 형식에 speculative 필드(generate·brief·region 3모드). 프론트: `specHtml(text,spec)`가 speculative 문장을 `.spec-txt`(주황 #c2410c, 점선밑줄)로 감쌈 — 생성카드(cardInner)·미리보기 side-body·preview.js head 공통. body 원문은 그대로 저장/등록(색은 표시용 메타, 백오피스엔 speculative 미전송). 카드에 안내문(.spec-note). 검증(8790): mock speculative 문장 span 1개·색 rgb(194,65,12)·안내문 표시. 지시문에 factRule·output speculative 반영 확인. 가이드 md에 "사실 근거·추측" 규칙 추가.
@@ -196,7 +198,7 @@ PRIZM 콘텐츠 제작 전 과정( **크롤링 → 콘텐츠 생성 → 상품 �
 
 - **2026-08-25 (배포 Phase 2 — GitHub 업로드 완료)**: **코드 저장소 = `https://github.com/Mark-ji-rxc/prizm-curation-contents`** (회사 org 접근 불가로 개인 계정에 생성, Private). 초기 커밋 push 완료(비밀 `ai.config.json`·`exports/`·`.app` 제외 확인). **모범 코퍼스 저장소 = `https://github.com/rxcompany/prizm-curation-editor`** (접근 가능 확인 → 이동 불필요, 로컬 모범 16편 push 완료). README_배포.md 코드 clone 주소를 개인 저장소로 교정(코퍼스 주소는 유지) 후 재push. 인증: 개인 PAT(Classic `repo` scope) + osxkeychain 캐시. **남은 것**: (a) 다른 사용자에게 두 저장소 접근권 부여 — 코드=개인repo 협업자 추가, 코퍼스=rxcompany org 멤버/협업자, (b) 각 PC git 자격증명 설정(서버 startup gitPull 프롬프트 방지), (c) 커밋 identity(현재 mark@local 자동값) 정리는 선택.
 
-- **2026-08-24 (다중 사용자 배포 Phase 1 — 코드 공유 정리)**: 여러 명이 개별 PC 실행 + 공유 모범 코퍼스로 품질 균일화. `contetents maker/`를 코드 repo로 만들기 위한 스캐폴딩 생성: `.gitignore`(비밀/개인 파일 제외 — `**/nas.config.json`·`studio/studio.config.json`·`saved-contents.json`·`saved-insights.json`·`저장콘텐츠_학습분석.md`·`state.json`·`.backups/`·`jobs/`·`exports/`·`uploads/`·`검색결과/`·`prizm_all_*.json`·`prizm-curation-editor/`·`nas-image-explorer/`·`콘텐츠 작성/`), 템플릿 `studio/studio.config.example.json`·`image-picker/nas.config.example.json`, 원클릭 `setup.command`(Node/Claude 확인→코퍼스 clone→설정파일 자동생성[referenceRepoDir 자동·user=git email]→서버 실행), `README_배포.md`(신규 사용자 온보딩). 검증: 설정생성 로직·git check-ignore로 비밀파일 제외/코드 포함 확인. **다음(Phase 2)**: 사용자가 GitHub repo(예 rxcompany/prizm-content-studio, Private) 생성 후 `git init/add/commit/push`(PAT 인증). 품질 균일 레버: 동일 코드(규칙)·Opus 고정·생성직전 gitPull 모범코퍼스·큐레이션(curators.json, 나중에 이메일 추가 가능). 미해결 논의: 개인 `saved-insights` 주입이 사용자별 편차 요인 → 원하면 공유 코퍼스로 이전+담당자전용화(Phase 4).
+- **2026-08-24 (다중 사용자 배포 Phase 1 — 코드 공유 정리)**: 여러 명이 개별 PC 실행 + 공유 모범 코퍼스로 품질 균일화. `contents maker/`를 코드 repo로 만들기 위한 스캐폴딩 생성: `.gitignore`(비밀/개인 파일 제외 — `**/nas.config.json`·`studio/studio.config.json`·`saved-contents.json`·`saved-insights.json`·`저장콘텐츠_학습분석.md`·`state.json`·`.backups/`·`jobs/`·`exports/`·`uploads/`·`검색결과/`·`prizm_all_*.json`·`prizm-curation-editor/`·`nas-image-explorer/`·`콘텐츠 작성/`), 템플릿 `studio/studio.config.example.json`·`image-picker/nas.config.example.json`, 원클릭 `setup.command`(Node/Claude 확인→코퍼스 clone→설정파일 자동생성[referenceRepoDir 자동·user=git email]→서버 실행), `README_배포.md`(신규 사용자 온보딩). 검증: 설정생성 로직·git check-ignore로 비밀파일 제외/코드 포함 확인. **다음(Phase 2)**: 사용자가 GitHub repo(예 rxcompany/prizm-content-studio, Private) 생성 후 `git init/add/commit/push`(PAT 인증). 품질 균일 레버: 동일 코드(규칙)·Opus 고정·생성직전 gitPull 모범코퍼스·큐레이션(curators.json, 나중에 이메일 추가 가능). 미해결 논의: 개인 `saved-insights` 주입이 사용자별 편차 요인 → 원하면 공유 코퍼스로 이전+담당자전용화(Phase 4).
 
 - **2026-08-24 (모범 모아보기 · 분류 정확도 개선/재분류)**:
   - **모범 콘텐츠 모아보기**: `renderReferences`를 본문 형별 그룹 카드(`.ref-group`/`.ref-grid`/`.ref-card`)로 개편 — 상단 "총 N편·형 M종", 형별 섹션에 제목·전체 본문·등록자/날짜·삭제. (기존 compact pick-row → 카드형.) 검증: 16편이 8개 형그룹으로 표시.

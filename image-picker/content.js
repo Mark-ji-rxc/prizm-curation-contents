@@ -12,7 +12,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const PROJECT_DIR = path.resolve(__dirname, '..'); // contetents maker/
+const PROJECT_DIR = path.resolve(__dirname, '..'); // contents maker/
 
 // ── 호텔 목록 ────────────────────────────────────────────────────────────────
 function findHotelJson() {

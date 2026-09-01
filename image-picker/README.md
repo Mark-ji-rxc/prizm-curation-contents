@@ -9,7 +9,7 @@
 ## 준비 (1회)
 
 ```bash
-cd "contetents maker/image-picker"
+cd "contents maker/image-picker"
 cp nas.config.example.json nas.config.json
 # nas.config.json 을 열어 NAS 아이디/비밀번호를 입력 (2단계 인증 시 otp도)
 ```

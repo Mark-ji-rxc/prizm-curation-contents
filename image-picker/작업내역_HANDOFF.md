@@ -1,7 +1,7 @@
 # 콘텐츠 이미지 추천기 — 작업 인수인계 (HANDOFF)
 
 > 다른 Claude(또는 담당자)가 이 문서만 보고 작업을 이어갈 수 있도록 정리한 문서.
-> 위치: `contetents maker/image-picker/` · 무의존성 Node.js(내장 모듈만, `npm install` 불필요) · Node 18+.
+> 위치: `contents maker/image-picker/` · 무의존성 Node.js(내장 모듈만, `npm install` 불필요) · Node 18+.
 > 최종 상태: **실제 NAS에 연결되어 전체 기능 동작 확인 완료.**
 
 ---
@@ -9,7 +9,7 @@
 ## 1. 이 프로그램이 뭔가
 
 큐레이션 콘텐츠(주제·본문)에 어울리는 **실제 호텔 사진**을 회사 Synology NAS에서 빠르게 불러와
-고르고 추천하는 **로컬 웹앱**. 상위 폴더 `contetents maker/`의 콘텐츠 생성 프로젝트와 연계.
+고르고 추천하는 **로컬 웹앱**. 상위 폴더 `contents maker/`의 콘텐츠 생성 프로젝트와 연계.
 
 - 호텔 데이터: 상위 폴더 `prizm_all_YYYYMMDD.json`(291개 호텔) 재사용.
 - 콘텐츠: 상위 폴더 `큐레이션_콘텐츠_*.md` 파싱해서 주제·본문·매칭호텔 자동 반영.
@@ -25,7 +25,7 @@
 ## 2. 실행 방법 (요약)
 
 ```bash
-cd "contetents maker/image-picker"
+cd "contents maker/image-picker"
 # 최초 1회: 설정
 cp nas.config.example.json nas.config.json   # NAS user/password 입력 (2단계 인증 시 otp)
 # 실행

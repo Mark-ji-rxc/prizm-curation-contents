@@ -49,7 +49,7 @@ CSV/JSON 으로 정리하는 방법. 국내 호텔 크롤러(`PRIZM_상품데이
 **Node.js 18+** 만 있으면 되고 외부 의존성 없음.
 
 ```bash
-cd "/Users/rxc/Desktop/claude code/contetents maker"
+cd "/Users/rxc/Desktop/claude code/contents maker"
 
 # 1) 전체(3종) 수집 — 가장 흔한 사용법
 node prizm_overseas_crawler.js
