@@ -17,6 +17,7 @@ studio/publish-queue.json
 studio/publish-staging/
 studio/showroom-map.json
 studio/office-session.json
+studio/office-session-prod.json
 studio/.backups/
 studio/jobs/
 studio/uploads/

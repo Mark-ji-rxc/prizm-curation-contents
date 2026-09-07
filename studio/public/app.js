@@ -191,7 +191,7 @@ $('#cBodyLen') && $('#cBodyLen').addEventListener('change', () => { $('#cBodyLen
 function regionModeOn() { return !!($('#cRegionMode') && $('#cRegionMode').checked); }
 function commonBody() {
   const region = regionModeOn();
-  const b = { scope: $('#cScope').value, region: $('#cRegion').value.trim(), condition: $('#cCondition').value, until: $('#cUntil').value, webSearch: region ? true : $('#cWeb').checked, model: $('#cModel').value, regionMode: region, ...bodyLenValues() };
+  const b = { scope: $('#cScope').value, region: $('#cRegion').value.trim(), condition: $('#cCondition').value, until: $('#cUntil').value, webSearch: region ? true : $('#cWeb').checked, model: $('#cModel').value, regionMode: region, festival: region && $('#cFestival') && $('#cFestival').checked, ...bodyLenValues() };
   if (!region && pickCodes.size) b.productCodes = [...pickCodes];   // 지역모드는 상품 조건 무시
   if (!region && selTypes.size) b.productTypes = [...selTypes];
   return b;
@@ -200,6 +200,7 @@ function commonBody() {
 $('#cRegionMode') && $('#cRegionMode').addEventListener('change', () => {
   const on = $('#cRegionMode').checked;
   const web = $('#cWeb'); if (web) { if (on) { web.checked = true; web.disabled = true; } else { web.disabled = false; } }
+  const fest = $('#cFestival'); if (fest) { fest.disabled = !on; if (!on) fest.checked = false; } // 축제 옵션은 지역모드에서만
   const ps = $('#productScope'); if (ps) ps.classList.toggle('dimmed', on);
   updateGenGate();
 });
@@ -937,6 +938,8 @@ function renderPubEditor() {
   const c = it.content || {}; const isCustom = it.mediaMode === 'custom'; const isOff = it.mediaMode === 'off';
   const isShowroom = it.exposure === 'showroom'; // 노출 종류: 쇼룸이면 쇼룸명만, 상품이면 상품명만
   el.innerHTML = `<div class="pub-form">
+    <div class="pf-row"><label>발행 대상</label><div class="pf-radios pf-target">
+      ${['stage', 'prod'].map((t) => `<label class="${t === 'prod' ? 'tgt-prod' : 'tgt-stage'}"><input type="radio" name="pf-target" value="${t}" ${(it.target || 'stage') === t ? 'checked' : ''}/> ${t === 'prod' ? '프로덕션(실서버)' : '스테이지(테스트)'}</label>`).join('')}</div></div>
     <div class="pf-row"><label>발행 도메인</label><div class="pf-radios">
       ${['common', 'domestic', 'overseas'].map((d) => `<label><input type="radio" name="pf-domain" value="${d}" ${it.domain === d ? 'checked' : ''}/> ${DOMAIN_LABEL[d]}</label>`).join('')}</div></div>
     <div class="pf-row"><label>발행 주체(쇼룸)</label><input class="input" id="pf-showroom" value="${esc(it.publisherShowroom || '')}" placeholder="국내=체크인 / 해외=인트립 / 공통=직접 입력" /></div>
@@ -978,6 +981,7 @@ function wirePubEditor(it) {
   $('#pf-del').onclick = async () => { if (!confirm('대기목록에서 삭제할까요?')) return; await api('/api/publish/queue?id=' + encodeURIComponent(it.id), { method: 'DELETE' }); pubSel = null; await loadPubQueue(); if (pubQueue[0]) pubSel = pubQueue[0].id; renderPubList(); renderPubEditor(); };
 }
 function collectPubItem(it) {
+  it.target = (document.querySelector('input[name="pf-target"]:checked') || {}).value || it.target || 'stage';
   it.domain = (document.querySelector('input[name="pf-domain"]:checked') || {}).value || it.domain;
   it.publisherShowroom = $('#pf-showroom').value.trim();
   it.content = it.content || {}; it.content.title = $('#pf-title').value.trim(); it.content.body = $('#pf-body').value;
@@ -1003,11 +1007,17 @@ async function runPublish(it) {
   if (!it.displayPeriod.start) return alert('전시 시작일시는 필수입니다.');
   if (!it.displayPeriod.unlimited && !it.displayPeriod.end) return alert('전시 종료일시를 입력하거나 무기한을 선택하세요.');
   if (!(it.items || []).length) return alert('노출할 상품/쇼룸 아이템이 없습니다.');
-  // 발행 환경 점검
-  let office = {}; try { office = await api('/api/publish/office-status'); } catch {}
+  // 발행 환경 점검 (대상: stage/prod)
+  const target = it.target || 'stage';
+  const envKo = target === 'prod' ? '프로덕션(실서버)' : '스테이지(테스트)';
+  const loginCmd = 'node publish-login.js' + (target === 'prod' ? ' prod' : '');
+  let office = {}; try { office = await api('/api/publish/office-status?target=' + target); } catch {}
   if (!office.playwrightOk) return alert('Playwright가 설치되지 않았습니다.\n터미널에서:\n  npm i playwright && npx playwright install chromium');
-  if (!office.sessionOk) return alert('백오피스 로그인 세션이 없습니다.\n터미널에서 한 번만:\n  node publish-login.js\n(브라우저가 열리면 로그인 후 Enter → 세션 저장)');
-  if (!confirm('이 콘텐츠를 실제 백오피스에 지금 등록할까요?\n' + (office.baseUrl || ''))) return;
+  if (!office.sessionOk) return alert(envKo + ' 백오피스 로그인 세션이 없습니다.\n터미널에서 한 번만:\n  ' + loginCmd + '\n(브라우저가 열리면 ' + envKo + ' 계정으로 로그인 후 Enter → 세션 저장)');
+  const msg = target === 'prod'
+    ? '⚠️ 실제 프로덕션(운영) 서버에 지금 등록합니다.\n실제 사용자에게 노출됩니다. 계속할까요?\n' + (office.baseUrl || '')
+    : '이 콘텐츠를 스테이지(테스트) 백오피스에 지금 등록할까요?\n' + (office.baseUrl || '');
+  if (!confirm(msg)) return;
   try {
     await api('/api/publish/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ item: it }) });
     await api('/api/publish/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: it.id }) });
@@ -1043,7 +1053,7 @@ async function genDescriptions(it) {
 
 
 // ── 노출 캘린더 (백오피스 게시글 · 전시기간 기준) ─────────────────────────────
-const calState = { view: 'week', scope: 'all', cursor: startOfDay(new Date()), live: true, sched: true, ended: false, posts: null, wired: false };
+const calState = { view: 'week', scope: 'all', cursor: startOfDay(new Date()), live: true, sched: true, ended: false, posts: null, wired: false, target: 'stage' };
 function startOfDay(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
 function addDays(d, n) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
 function dayMs(d) { const s = startOfDay(d).getTime(); return { s, e: s + 86400000 - 1 }; }
@@ -1074,7 +1084,7 @@ function startsFirst(d) { const { s, e } = dayMs(d); const on = (p) => (p.start 
 // 로그인 세션 만료 임박/만료 경고 배너(24시간 이내면 경고)
 async function renderSessionWarn() {
   const el = $('#calSessionWarn'); if (!el) return;
-  let s; try { s = await api('/api/office/session'); } catch { el.classList.add('hidden'); return; }
+  let s; try { s = await api('/api/office/session?target=' + calState.target); } catch { el.classList.add('hidden'); return; }
   const how = '<b>매니저 오피스에 다시 로그인해 주세요.</b><br><span class="warn-how">터미널에서 <code>node publish-login.js</code> 실행 → 열리는 브라우저에서 로그인 → 터미널로 돌아와 Enter → 캘린더 "새로고침"</span>';
   if (!s.exists) { el.className = 'cal-warn warn-err'; el.innerHTML = `백오피스 로그인 세션이 없습니다. ${how}`; return; }
   if (s.expired) { el.className = 'cal-warn warn-err'; el.innerHTML = `⚠ 매니저 오피스 로그인 세션이 만료됐습니다. ${how}`; return; }
@@ -1093,7 +1103,7 @@ async function loadCalendar(force) {
   const body = $('#calBody'); if (!body) return;
   if (calState.posts === null || force) {
     body.innerHTML = '<div class="muted sm">불러오는 중…</div>';
-    try { const r = await api('/api/office/posts' + (force ? '?force=1' : '')); calState.posts = r.posts || []; }
+    try { const r = await api('/api/office/posts?target=' + calState.target + (force ? '&force=1' : '')); calState.posts = r.posts || []; }
     catch (e) { body.innerHTML = `<div class="cal-err">게시글을 불러오지 못했습니다: ${esc(e.message)}<br><span class="muted sm">세션이 만료됐다면 터미널에서 <code>node publish-login.js</code> 로 다시 로그인하세요.</span></div>`; return; }
   }
   renderCalendar();
@@ -1105,6 +1115,7 @@ function wireCalendar() {
   $('#calToday').onclick = () => { calState.cursor = startOfDay(new Date()); renderCalendar(); };
   $$('#calView .seg-b').forEach((b) => b.onclick = () => { calState.view = b.dataset.view; $$('#calView .seg-b').forEach((x) => x.classList.toggle('active', x === b)); if (calState.view === 'month') calState.cursor = new Date(calState.cursor.getFullYear(), calState.cursor.getMonth(), 1); renderCalendar(); });
   $$('#calScopeSeg .seg-b').forEach((b) => b.onclick = () => { calState.scope = b.dataset.scope; $$('#calScopeSeg .seg-b').forEach((x) => x.classList.toggle('active', x === b)); renderCalendar(); });
+  $$('#calTargetSeg .seg-b').forEach((b) => b.onclick = () => { if (calState.target === b.dataset.target) return; calState.target = b.dataset.target; $$('#calTargetSeg .seg-b').forEach((x) => x.classList.toggle('active', x === b)); loadCalendar(true); }); // 환경 전환 → 재조회
   $('#calLive').onchange = () => { calState.live = $('#calLive').checked; renderCalendar(); };
   $('#calSched').onchange = () => { calState.sched = $('#calSched').checked; renderCalendar(); };
   $('#calEnded').onchange = () => { calState.ended = $('#calEnded').checked; renderCalendar(); };

@@ -74,15 +74,21 @@
    ```bash
    cd studio && npm i playwright && npx playwright install chromium
    ```
-2. **백오피스 로그인 세션 저장** (비밀번호는 저장되지 않음 — 세션 쿠키만)
+2. **백오피스 로그인 세션 저장** (비밀번호는 저장되지 않음 — 세션 쿠키만) — 환경별로 각각:
    ```bash
-   node publish-login.js
+   node publish-login.js         # 스테이지(테스트)  → office-session.json
+   node publish-login.js prod    # 프로덕션(실서버)  → office-session-prod.json
    ```
-   → 열리는 브라우저에서 백오피스에 **직접 로그인** → 창을 닫으면 세션이 `office-session.json`에 저장됩니다. (세션 만료 시 다시 실행)
-3. **`studio.config.json`** 에 office 섹션(백오피스 주소 등)이 필요하면 채웁니다. (stage↔실서버 전환은 이 주소만 교체)
+   → 열리는 브라우저에서 해당 환경 백오피스에 **직접 로그인** → 터미널 Enter → 세션 저장. (세션 만료 시 다시 실행)
+
+### 스테이지 vs 프로덕션 (발행 대상 선택)
+- `⑥ 등록` 대기목록 에디터의 **발행 대상**에서 **스테이지(테스트)** / **프로덕션(실서버)** 를 고릅니다. (기본 스테이지, 프로덕션은 빨강 강조 + 발행 시 강한 확인창)
+- 각 환경은 **별도 로그인 세션**을 씁니다. 프로덕션에 등록하려면 위 `node publish-login.js prod` 로 프로덕션 세션을 먼저 저장해야 합니다.
+- **노출 캘린더**도 상단에서 스테이지/프로덕션을 전환해 각 환경의 실제 게시글을 확인할 수 있습니다.
+- 백오피스 주소: 스테이지 `manager-office-stage.prizm.co.kr` / 프로덕션 `manager-office.prizm.co.kr` (기본값 내장, 필요 시 `studio.config.json`의 `office.stage`/`office.prod`로 재정의)
 
 > 설정 안 하면 [발행 실행] 시 "Playwright 미설치/세션 없음" 안내가 뜹니다. 설정 후엔 버튼 → 상태가 `⏳ 발행 중…` → `✅ 발행됨`으로 바뀝니다.
-> ⚠️ 무인 자동발행이라 **잘못된 콘텐츠도 그대로 게시**될 수 있으니, 발행 전 미리보기로 확인하세요.
+> ⚠️ 무인 자동발행이라 **잘못된 콘텐츠도 그대로 게시**될 수 있으니, 특히 **프로덕션 발행 전에는 미리보기로 반드시 확인**하세요.
 
 ---
 

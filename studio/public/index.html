@@ -91,6 +91,7 @@
     </div>
 
     <label class="region-mode"><input type="checkbox" id="cRegionMode" /> <b>지역 기반 콘텐츠</b> <span class="muted sm">— 상품 없이 지역 자체(특산물·장점·가야 할 이유·요즘 트렌드)를 주제로. 인터넷 검색 필수</span></label>
+    <label class="region-sub" id="cFestivalWrap"><input type="checkbox" id="cFestival" disabled /> 지역 축제 소개 포함 <span class="muted sm">— 소도시 포함 · 검색시점 4개월 이내 축제 · 인터넷 검색으로 상세 조사</span></label>
 
     <div id="productScope">
     <label class="block">상품 타입 (선택 · 여러 개 가능 · 비우면 전체)
@@ -392,6 +393,10 @@
         </div>
       </div>
       <div class="cal-controls">
+        <div class="seg" id="calTargetSeg" title="조회할 백오피스 환경">
+          <button type="button" data-target="stage" class="seg-b active">스테이지</button>
+          <button type="button" data-target="prod" class="seg-b">프로덕션</button>
+        </div>
         <div class="seg" id="calView">
           <button type="button" data-view="day" class="seg-b">하루</button>
           <button type="button" data-view="week" class="seg-b active">일주일</button>

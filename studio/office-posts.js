@@ -5,33 +5,30 @@
 const fs = require('fs');
 const CFG = require('./_officecfg');
 
-// baseUrl(웹) → API 호스트 유추: manager-office-stage → manager-office-api-stage
-function apiBase() {
-  const web = CFG.baseUrl || 'https://manager-office-stage.prizm.co.kr';
-  try { const u = new URL(web); return u.origin.replace('manager-office-', 'manager-office-api-'); }
-  catch { return 'https://manager-office-api-stage.prizm.co.kr'; }
-}
-function readToken() {
-  if (!fs.existsSync(CFG.sessionFile)) throw new Error('로그인 세션 없음 — 터미널에서 `node publish-login.js` 로 로그인하세요.');
-  const s = JSON.parse(fs.readFileSync(CFG.sessionFile, 'utf8'));
+function readToken(off) {
+  const envKo = off.env === 'prod' ? '프로덕션' : '스테이지';
+  const cmd = 'node publish-login.js' + (off.env === 'prod' ? ' prod' : '');
+  if (!fs.existsSync(off.sessionFile)) throw new Error(`${envKo} 로그인 세션 없음 — 터미널에서 \`${cmd}\` 로 로그인하세요.`);
+  const s = JSON.parse(fs.readFileSync(off.sessionFile, 'utf8'));
   const o = (s.origins || [])[0] || {};
   const t = (o.localStorage || []).find((x) => x.name === 'token');
-  if (!t || !t.value) throw new Error('세션에 토큰이 없습니다 — 다시 로그인하세요.');
+  if (!t || !t.value) throw new Error(`${envKo} 세션에 토큰이 없습니다 — 다시 로그인하세요.`);
   return t.value;
 }
 const CAT = { DOMESTIC: 'domestic', INTERNATIONAL: 'overseas', NONE: 'common' };
 
-// 전체 게시글을 정규화해 반환. [{id, category, title, publisher, start(ms), end(ms|null), status}]
-async function fetchOfficePosts() {
-  const token = readToken();
-  const base = apiBase();
+// 전체 게시글을 정규화해 반환. env: 'stage'(기본) | 'prod'. [{id, category, title, publisher, start(ms), end(ms|null), status}]
+async function fetchOfficePosts(env) {
+  const off = CFG.envConfig(env);
+  const token = readToken(off);
+  const base = off.apiBase;
   const headers = { 'content-type': 'application/json', authorization: token, accept: 'application/json' };
   const size = 200;
   let page = 1, out = [], totalPages = 1;
   do {
     const url = `${base}/manager/discover/post/search?page=${page}&size=${size}`;
     const r = await fetch(url, { method: 'POST', headers, body: '{}' });
-    if (r.status === 401 || r.status === 403) throw new Error('세션 만료/권한 없음 — 터미널에서 `node publish-login.js` 로 다시 로그인하세요.');
+    if (r.status === 401 || r.status === 403) throw new Error(`${off.env === 'prod' ? '프로덕션' : '스테이지'} 세션 만료/권한 없음 — 터미널에서 \`node publish-login.js${off.env === 'prod' ? ' prod' : ''}\` 로 다시 로그인하세요.`);
     if (!r.ok) throw new Error('게시글 조회 실패 HTTP ' + r.status);
     const j = await r.json();
     totalPages = j.totalPages || 1;
@@ -53,12 +50,13 @@ async function fetchOfficePosts() {
 
 // 로그인 세션(JWT) 만료 정보 — 네트워크 없이 로컬 토큰만 디코드. 만료 임박 경고용.
 function decodeExp(token) { try { const p = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString()); return p.exp ? p.exp * 1000 : null; } catch { return null; } }
-function sessionInfo() {
+function sessionInfo(env) {
+  const off = CFG.envConfig(env);
   try {
-    const token = readToken();
+    const token = readToken(off);
     const exp = decodeExp(token); const now = Date.now();
-    return { exists: true, exp, expired: exp != null && exp < now, expiresInMs: exp != null ? exp - now : null };
-  } catch (e) { return { exists: false, error: e.message }; }
+    return { exists: true, env: off.env, exp, expired: exp != null && exp < now, expiresInMs: exp != null ? exp - now : null };
+  } catch (e) { return { exists: false, env: off.env, error: e.message }; }
 }
 
 module.exports = { fetchOfficePosts, sessionInfo };

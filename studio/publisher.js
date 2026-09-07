@@ -9,21 +9,24 @@ const CFG = require('./_officecfg');
 const DOMAIN_RADIO = { common: 'NONE', domestic: 'DOMESTIC', overseas: 'INTERNATIONAL' };
 
 async function publishItem(item, stagedFiles, customImages) {
-  if (!fs.existsSync(CFG.sessionFile)) throw new Error('로그인 세션 없음 — 먼저 `node publish-login.js` 로 로그인하세요.');
-  const browser = await chromium.launch({ headless: CFG.headless });
+  const OFF = CFG.envConfig(item && item.target); // stage(기본) | prod
+  const envKo = OFF.env === 'prod' ? '프로덕션' : '스테이지';
+  if (!fs.existsSync(OFF.sessionFile)) throw new Error(`${envKo} 로그인 세션 없음 — 터미널에서 \`node publish-login.js${OFF.env === 'prod' ? ' prod' : ''}\` 로 로그인하세요.`);
+  const browser = await chromium.launch({ headless: OFF.headless });
   const log = [];
   const step = (m) => { log.push(m); console.log('[publish]', m); };
+  step('대상 환경: ' + envKo + ' (' + OFF.baseUrl + ')');
   let page;
   try {
-    const ctx = await browser.newContext({ storageState: CFG.sessionFile });
+    const ctx = await browser.newContext({ storageState: OFF.sessionFile });
     page = await ctx.newPage();
-    await page.goto(CFG.baseUrl + '/display/discover/post/create', { waitUntil: 'networkidle' });
+    await page.goto(OFF.baseUrl + '/display/discover/post/create', { waitUntil: 'networkidle' });
     await page.waitForTimeout(1500);
     // 세션 만료/미로그인 감지: 로그인 폼(email)이 보이거나 create 폼(쇼룸 검색)이 안 뜨면
     const loggedOut = (await page.locator('input[type=email]').count()) > 0;
     await page.getByPlaceholder('쇼룸 검색').first().waitFor({ timeout: 8000 }).catch(() => {});
     const formReady = (await page.getByPlaceholder('쇼룸 검색').count()) > 0;
-    if (loggedOut || !formReady) throw new Error('세션 만료/미로그인 — 터미널에서 `node publish-login.js` 로 로그인하세요.');
+    if (loggedOut || !formReady) throw new Error(`${envKo} 세션 만료/미로그인 — 터미널에서 \`node publish-login.js${OFF.env === 'prod' ? ' prod' : ''}\` 로 로그인하세요.`);
 
     // 1) 발행 도메인
     const domVal = DOMAIN_RADIO[item.domain] || 'NONE';

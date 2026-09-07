@@ -223,7 +223,7 @@ function saveState(s) {
   return s;
 }
 let state = loadState();
-let officePostsCache = { at: 0, posts: [] }; // 백오피스 게시글 목록 캐시(캘린더용)
+let officePostsCache = {}; // 백오피스 게시글 목록 캐시(캘린더용) — 환경별 {stage:{at,posts}, prod:{...}}
 
 // ── ⑥ 발행 큐(여러 콘텐츠를 발행 설정까지 준비해 대기, 그중 선택 등록) ──────────
 const PUBLISH_QUEUE_FILE = path.join(DIR, 'publish-queue.json');
@@ -270,6 +270,7 @@ function buildPublishDraft() {
     images: state.confirmedImages || [], matches: state.matches || {},
     items, filterKeywords: [], displayOrder: null, displayVisible: true,
     displayPeriod: { start: '', end: dpEnd, unlimited: dpUnlimited }, status: 'draft',
+    target: 'stage', // 발행 대상 환경: 'stage'(기본) | 'prod' — 등록 단계에서 선택
   };
 }
 // 크롤 데이터 인덱스(상품코드/ID → 상품). 판매종료일·상시판매 조회용.
@@ -610,7 +611,7 @@ function compactForJob(items) {
 
 // ── 콘텐츠 생성 job 만들기 ────────────────────────────────────────────────────
 // mode: 'generate'(주제 자동 도출) | 'match'(내가 쓴 콘텐츠 매칭) | 'brief'(지시/브리프로 생성)
-function buildContentJob({ topic, count, perTopic, forms, scope, region, form, persona, condition, until, productCodes, productTypes, mode, userTitle, userBody, model, brief, webSearch, bodyMin, bodyMax, regionMode }) {
+function buildContentJob({ topic, count, perTopic, forms, scope, region, form, persona, condition, until, productCodes, productTypes, mode, userTitle, userBody, model, brief, webSearch, bodyMin, bodyMax, regionMode, festival }) {
   const per = Math.max(1, Number(perTopic) || 1);
   const web = !!webSearch || !!regionMode; // 지역 기반 콘텐츠는 인터넷 검색 필수
   // 사실 근거 + 추측 표기 규칙(모든 생성 모드 공통): 데이터에 없는 구체정보는 검색으로 확인, 못 하면 추측 처리
@@ -629,6 +630,14 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
   const items = pickProducts({ scope, region, condition: cond, until, productCodes, productTypes });
   // 지역 기반 콘텐츠: 대상 지역 후보(선택 지역 1개 또는 해당 구분의 전체 지역 목록)
   const regionCands = regionMode ? (region ? [region] : regionList(scope).map((r) => r.region)) : null;
+  // 지역 축제(옵션): 검색시점부터 4개월 이내, 소도시 포함
+  const useFestival = !!(regionMode && festival);
+  let festivalLine = '';
+  if (useFestival) {
+    const now = new Date(); const end = new Date(now); end.setMonth(end.getMonth() + 4);
+    const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    festivalLine = `★ 지역 축제 소개(필수): 대상 지역과 **그 안의 소도시·작은 지역**에서 열리는 축제 중, **오늘(${fmt(now)})부터 4개월 이내(${fmt(now)} ~ ${fmt(end)})** 에 개최되는 축제를 인터넷 검색(WebSearch)으로 최대한 자세히 찾아 소개한다. 광역 지역명뿐 아니라 그 안의 시·군·읍·면 단위 축제까지 폭넓게 검색(예: "○○ 9월 축제", "○○ 가을 축제 일정"). 각 축제의 축제명·개최지(소도시 포함)·정확한 기간·핵심 볼거리를 사실 확인해 쓴다. 개최 기간이 불명확하거나 4개월 밖이면 제외. 축제가 정말 없으면 지역의 계절 매력으로 대체하되 축제를 지어내지 말 것. 확인 못 한 세부는 추측 표기(speculative).`;
+  }
   const references = loadReferences().slice(0, 6); // 실제 에디터 우수 콘텐츠(있으면 few-shot으로)
   const refLine = references.length
     ? `★ referenceExamples: 실제 에디터가 쓴 우수 콘텐츠 ${references.length}편이다(제목/본문/형). 이 톤·구성·구체성·완성도를 "학습"해 같은 퀄리티로 써라. 문장·표현을 그대로 베끼지 말고 스타일·디테일 수준만 흡수한다.`
@@ -677,7 +686,8 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       '이 요청은 "지역 기반 콘텐츠 생성"입니다. 특정 상품·숙소가 아니라 지역/여행지 그 자체를 주제로, 상품 언급 없이 콘텐츠를 만들어 이 파일을 덮어써 저장하세요.',
       '0) ' + regionsLine,
       '★ 인터넷 검색 필수(WebSearch): 각 지역의 최신·사실 정보를 검색으로 확인해 근거 있게 쓴다. 소재 예 — 그 지역의 특산물·명물·먹거리, 지역의 매력·장점, 지금(계절·이벤트·제철) 가야 하는 이유, 요즘 트렌디한 것(핫플·경험·현지 분위기). 추측·부정확·과장 금지, 신뢰할 출처만.',
-      `1) input.count 개의 콘텐츠를 만든다. ${regionCands.length === 1 ? '같은 지역을 서로 다른 각도(특산물/장점/가야 할 이유/요즘 트렌드 등)로 다양하게, 겹치지 않게.' : '가능한 서로 다른 지역으로, 각 지역의 개성을 살려 겹치지 않게.'}`,
+      festivalLine,
+      `1) input.count 개의 콘텐츠를 만든다. ${useFestival ? '각 콘텐츠는 위 4개월 이내 축제를 중심 소재로(소도시 축제 포함), ' : ''}${regionCands.length === 1 ? '같은 지역을 서로 다른 각도(특산물/장점/가야 할 이유/요즘 트렌드' + (useFestival ? '/축제' : '') + ' 등)로 다양하게, 겹치지 않게.' : '가능한 서로 다른 지역으로, 각 지역의 개성을 살려 겹치지 않게.'}`,
       '2) ★★ 절대 규칙: 상품/숙소/호텔/패키지/객실/가격/할인/예약을 일절 언급하지 않는다. matched 는 반드시 빈 배열 []. 판매·구매 유도 금지 — 지역의 매력과 정보 전달에만 집중.',
       `3) 제목 8~16자, 본문 ${bodyRule}, 하우스 보이스(친근한 반말+존댓말 마무리). 지역명을 자연스럽게 녹이고, 읽는 사람이 "그 지역에 가보고 싶다"는 마음이 들도록 구체적·생생하게. 상투구·일반론 금지.`,
       bodyLenNote,
@@ -715,7 +725,7 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
   const rulesForJob = { ...CONTENT_RULES, 본문: `${bodyRule}. 무엇이 좋은지 + 왜 이렇게 묶었는지를 고객 상황에서 와닿게. (스튜디오에서 지정한 본문 길이)` };
   if (regionMode) { rulesForJob.상품매칭 = '지역 기반 콘텐츠 — 상품 매칭 없음. matched 는 반드시 빈 배열 [].'; rulesForJob.주의 = '상품/숙소/호텔/가격/예약 언급 금지. 지역 정보(특산물·명물·장점·가야 할 이유·요즘 트렌드)는 인터넷 검색으로 사실 확인.'; }
   return jobs.createJob('content', {
-    input: { mode: mode || 'generate', topic: topic || '', count: mode === 'match' ? 1 : (Number(count) || (mode === 'brief' ? 1 : 3)), perTopic: (mode === 'match' || mode === 'brief' || regionMode) ? 1 : per, forms: formList, scope, region: region || '', persona: persona || '', condition: cond, until: until || '', productCodes: productCodes || [], productTypes: productTypes || [], model: model === 'sonnet' ? 'sonnet' : 'opus', webSearch: web, bodyMin: bMin, bodyMax: bMax, regionMode: !!regionMode, regions: regionCands || [], brief: mode === 'brief' ? (brief || '') : '', userContent: mode === 'match' ? { title: userTitle || '', body: userBody || '' } : null },
+    input: { mode: mode || 'generate', topic: topic || '', count: mode === 'match' ? 1 : (Number(count) || (mode === 'brief' ? 1 : 3)), perTopic: (mode === 'match' || mode === 'brief' || regionMode) ? 1 : per, forms: formList, scope, region: region || '', persona: persona || '', condition: cond, until: until || '', productCodes: productCodes || [], productTypes: productTypes || [], model: model === 'sonnet' ? 'sonnet' : 'opus', webSearch: web, bodyMin: bMin, bodyMax: bMax, regionMode: !!regionMode, regions: regionCands || [], festival: !!useFestival, brief: mode === 'brief' ? (brief || '') : '', userContent: mode === 'match' ? { title: userTitle || '', body: userBody || '' } : null },
     rules: rulesForJob,
     referenceExamples: references,
     productCount: regionMode ? Math.max(1, (regionCands || []).length) : items.length,
@@ -1221,22 +1231,24 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/publish/office-status' && req.method === 'GET') {
       const officeCfg = require('./_officecfg');
       let playwrightOk = false; try { require.resolve('playwright'); playwrightOk = true; } catch {}
-      const sessionOk = fs.existsSync(officeCfg.sessionFile);
-      return sendJson(res, 200, { playwrightOk, sessionOk, baseUrl: officeCfg.baseUrl });
+      const off = officeCfg.envConfig(q.get('target')); // stage(기본)|prod
+      return sendJson(res, 200, { playwrightOk, sessionOk: fs.existsSync(off.sessionFile), baseUrl: off.baseUrl, env: off.env });
     }
-    // 백오피스 게시글 목록(캘린더용) — 60초 캐시. force=1이면 갱신
+    // 백오피스 게시글 목록(캘린더용) — 환경(stage/prod)별 60초 캐시. force=1이면 갱신
     if (p === '/api/office/posts' && req.method === 'GET') {
+      const env = q.get('target') === 'prod' ? 'prod' : 'stage';
       const now = Date.now();
       const force = q.get('force') === '1';
-      if (!force && officePostsCache.at && (now - officePostsCache.at) < 60000) return sendJson(res, 200, { posts: officePostsCache.posts, fetchedAt: officePostsCache.at, cached: true });
+      const c = officePostsCache[env];
+      if (!force && c && (now - c.at) < 60000) return sendJson(res, 200, { posts: c.posts, fetchedAt: c.at, cached: true, env });
       try {
-        const posts = await require('./office-posts').fetchOfficePosts();
-        officePostsCache = { at: now, posts };
-        return sendJson(res, 200, { posts, fetchedAt: now, cached: false });
+        const posts = await require('./office-posts').fetchOfficePosts(env);
+        officePostsCache[env] = { at: now, posts };
+        return sendJson(res, 200, { posts, fetchedAt: now, cached: false, env });
       } catch (e) { return sendErr(res, 502, e.message); }
     }
-    // 로그인 세션 만료 정보(네트워크 없이 로컬 토큰 디코드) — 만료 임박 경고용
-    if (p === '/api/office/session' && req.method === 'GET') { return sendJson(res, 200, require('./office-posts').sessionInfo()); }
+    // 로그인 세션 만료 정보(네트워크 없이 로컬 토큰 디코드) — 만료 임박 경고용. target=stage|prod
+    if (p === '/api/office/session' && req.method === 'GET') { return sendJson(res, 200, require('./office-posts').sessionInfo(q.get('target'))); }
 
     return sendErr(res, 404, 'unknown endpoint: ' + p);
   } catch (e) {
