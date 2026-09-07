@@ -1172,7 +1172,15 @@ async function runPublish(it) {
   const loginCmd = 'node publish-login.js' + (target === 'prod' ? ' prod' : '');
   let office = {}; try { office = await api('/api/publish/office-status?target=' + target); } catch {}
   if (!office.playwrightOk) return alert('Playwright가 설치되지 않았습니다.\n터미널에서:\n  npm i playwright && npx playwright install chromium');
-  if (!office.sessionOk) return alert(envKo + ' 백오피스 로그인 세션이 없습니다.\n터미널에서 한 번만:\n  ' + loginCmd + '\n(브라우저가 열리면 ' + envKo + ' 계정으로 로그인 후 Enter → 세션 저장)');
+  if (!office.sessionOk) {
+    if (!confirm(envKo + ' 백오피스 로그인 세션이 없습니다.\n지금 스튜디오에서 바로 로그인할까요?\n(확인 → 브라우저가 열립니다. ' + envKo + ' 계정으로 로그인만 하면 자동 완료돼요)')) return;
+    const b = $('#notionBanner'); if (b) b.classList.remove('hidden');
+    const ok = await runOfficeLogin(target, b);
+    if (!ok) return;
+    try { office = await api('/api/publish/office-status?target=' + target); } catch {}
+    if (!office.sessionOk) { if (b) b.innerHTML = '로그인이 확인되지 않았어요. 다시 시도해 주세요.'; return; }
+    if (b) b.classList.add('hidden');
+  }
   const msg = target === 'prod'
     ? '⚠️ 실제 프로덕션(운영) 서버에 지금 등록합니다.\n실제 사용자에게 노출됩니다. 계속할까요?\n' + (office.baseUrl || '')
     : '이 콘텐츠를 스테이지(테스트) 백오피스에 지금 등록할까요?\n' + (office.baseUrl || '');
@@ -1262,18 +1270,25 @@ async function renderSessionWarn() {
   el.className = cls; el.innerHTML = html;
   const lb = el.querySelector('.cal-login-btn'); if (lb) lb.onclick = () => officeLogin(calState.target, el.querySelector('.cal-login-status'), lb);
 }
-// 스튜디오에서 바로 로그인: 서버가 브라우저 띄우고 로그인 완료를 자동 감지 → 세션 저장 → 캘린더 새로고침
-async function officeLogin(target, statusEl, btn) {
+// 스튜디오에서 바로 로그인(공용): 서버가 브라우저 띄우고 로그인 완료를 자동 감지 → 세션 저장. Promise<boolean>
+async function runOfficeLogin(target, statusEl) {
   const set = (h) => { if (statusEl) statusEl.innerHTML = h; };
-  if (btn) btn.disabled = true;
   try { await api('/api/publish/login?target=' + target, { method: 'POST' }); }
-  catch (e) { set('시작 실패: ' + esc(e.message)); if (btn) btn.disabled = false; return; }
+  catch (e) { set('시작 실패: ' + esc(e.message)); return false; }
   set('<span class="spinner"></span> 브라우저가 열렸어요. 매니저 오피스에 로그인하면 자동으로 완료됩니다…');
-  const t = setInterval(async () => {
-    let st; try { st = await api('/api/publish/login/status?target=' + target); } catch { return; }
-    if (st.status === 'done') { clearInterval(t); set('✅ 로그인 완료! 새로고침합니다…'); await loadCalendar(true); renderSessionWarn(); }
-    else if (st.status === 'failed') { clearInterval(t); set('⚠ 실패: ' + esc(st.error || '') + ' 다시 시도하세요.'); if (btn) btn.disabled = false; }
-  }, 2000);
+  return await new Promise((resolve) => {
+    const t = setInterval(async () => {
+      let st; try { st = await api('/api/publish/login/status?target=' + target); } catch { return; }
+      if (st.status === 'done') { clearInterval(t); set('✅ 로그인 완료!'); resolve(true); }
+      else if (st.status === 'failed') { clearInterval(t); set('⚠ 실패: ' + esc(st.error || '') + ' 다시 시도하세요.'); resolve(false); }
+    }, 2000);
+  });
+}
+// 캘린더 세션경고 배너용 래퍼(완료 시 캘린더 새로고침)
+async function officeLogin(target, statusEl, btn) {
+  if (btn) btn.disabled = true;
+  const ok = await runOfficeLogin(target, statusEl);
+  if (ok) { await loadCalendar(true); renderSessionWarn(); } else if (btn) btn.disabled = false;
 }
 async function loadCalendar(force) {
   wireCalendar();
