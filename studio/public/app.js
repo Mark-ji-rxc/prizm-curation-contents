@@ -1189,17 +1189,36 @@ function startsFirst(d) { const { s, e } = dayMs(d); const on = (p) => (p.start 
 async function renderSessionWarn() {
   const el = $('#calSessionWarn'); if (!el) return;
   let s; try { s = await api('/api/office/session?target=' + calState.target); } catch { el.classList.add('hidden'); return; }
-  const how = '<b>매니저 오피스에 다시 로그인해 주세요.</b><br><span class="warn-how">터미널에서 <code>node publish-login.js</code> 실행 → 열리는 브라우저에서 로그인 → 터미널로 돌아와 Enter → 캘린더 "새로고침"</span>';
-  if (!s.exists) { el.className = 'cal-warn warn-err'; el.innerHTML = `백오피스 로그인 세션이 없습니다. ${how}`; return; }
-  if (s.expired) { el.className = 'cal-warn warn-err'; el.innerHTML = `⚠ 매니저 오피스 로그인 세션이 만료됐습니다. ${how}`; return; }
-  const ms = s.expiresInMs || 0;
-  if (ms > 0 && ms < 24 * 3600 * 1000) {
-    const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
-    const when = new Date(s.exp).toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    el.className = 'cal-warn warn-soon'; el.innerHTML = `⏰ 매니저 오피스 로그인 세션이 곧 만료됩니다 — ${esc(when)} (약 ${h}시간 ${m}분 뒤). 지금 미리 다시 로그인해 두세요.<br><span class="warn-how">터미널에서 <code>node publish-login.js</code> 실행 → 로그인 → Enter.</span>`;
-    return;
+  const cmd = 'node publish-login.js' + (calState.target === 'prod' ? ' prod' : '');
+  // 버튼 한 번 로그인(브라우저 열림→로그인→자동 완료·새로고침) + 터미널 방식은 보조 안내
+  const loginRow = `<div class="cal-login-row"><button type="button" class="cal-login-btn btn sm primary">🔓 스튜디오에서 바로 로그인</button> <span class="cal-login-status muted sm"></span></div>`
+    + `<span class="warn-how">버튼을 누르면 브라우저가 열립니다. 매니저 오피스에 로그인만 하면 자동으로 완료·새로고침돼요. (또는 터미널 <code>${cmd}</code>)</span>`;
+  let cls = 'cal-warn hidden', html = '';
+  if (!s.exists) { cls = 'cal-warn warn-err'; html = `백오피스 로그인 세션이 없습니다. <b>매니저 오피스에 로그인해 주세요.</b>${loginRow}`; }
+  else if (s.expired) { cls = 'cal-warn warn-err'; html = `⚠ 매니저 오피스 로그인 세션이 만료됐습니다. <b>다시 로그인해 주세요.</b>${loginRow}`; }
+  else {
+    const ms = s.expiresInMs || 0;
+    if (ms > 0 && ms < 24 * 3600 * 1000) {
+      const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+      const when = new Date(s.exp).toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      cls = 'cal-warn warn-soon'; html = `⏰ 매니저 오피스 로그인 세션이 곧 만료됩니다 — ${esc(when)} (약 ${h}시간 ${m}분 뒤). 지금 미리 다시 로그인해 두세요.${loginRow}`;
+    }
   }
-  el.className = 'cal-warn hidden';
+  el.className = cls; el.innerHTML = html;
+  const lb = el.querySelector('.cal-login-btn'); if (lb) lb.onclick = () => officeLogin(calState.target, el.querySelector('.cal-login-status'), lb);
+}
+// 스튜디오에서 바로 로그인: 서버가 브라우저 띄우고 로그인 완료를 자동 감지 → 세션 저장 → 캘린더 새로고침
+async function officeLogin(target, statusEl, btn) {
+  const set = (h) => { if (statusEl) statusEl.innerHTML = h; };
+  if (btn) btn.disabled = true;
+  try { await api('/api/publish/login?target=' + target, { method: 'POST' }); }
+  catch (e) { set('시작 실패: ' + esc(e.message)); if (btn) btn.disabled = false; return; }
+  set('<span class="spinner"></span> 브라우저가 열렸어요. 매니저 오피스에 로그인하면 자동으로 완료됩니다…');
+  const t = setInterval(async () => {
+    let st; try { st = await api('/api/publish/login/status?target=' + target); } catch { return; }
+    if (st.status === 'done') { clearInterval(t); set('✅ 로그인 완료! 새로고침합니다…'); await loadCalendar(true); renderSessionWarn(); }
+    else if (st.status === 'failed') { clearInterval(t); set('⚠ 실패: ' + esc(st.error || '') + ' 다시 시도하세요.'); if (btn) btn.disabled = false; }
+  }, 2000);
 }
 async function loadCalendar(force) {
   wireCalendar();

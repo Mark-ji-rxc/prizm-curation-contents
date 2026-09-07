@@ -367,6 +367,8 @@ label.block { margin-top: var(--sp-2); }
 .rc-done .rc-st { color: var(--ok); }
 .rc-failed .rc-st { color: #dc2626; }
 /* 발행 대상(환경) 라디오 — 프로덕션은 경고색으로 구분 */
+/* 전시 순서/기간 행의 체크박스 라벨(노출·무기한)이 줄바꿈되지 않게 */
+.pf-row .row.gap label { white-space: nowrap; }
 .pf-target label { border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; cursor: pointer; }
 .pf-target label:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .pf-target label.tgt-prod:has(input:checked) { border-color: #dc2626; background: color-mix(in srgb, #dc2626 10%, transparent); color: #dc2626; font-weight: 700; }
@@ -410,6 +412,8 @@ label.block { margin-top: var(--sp-2); }
 .cal-warn.warn-soon { color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
 .cal-warn.warn-err { color: #dc2626; background: color-mix(in srgb, #dc2626 9%, transparent); border-color: color-mix(in srgb, #dc2626 28%, transparent); }
 .cal-warn .warn-how { display: inline-block; margin-top: 3px; font-size: var(--fs-meta); opacity: .9; }
+.cal-login-row { display: flex; align-items: center; gap: 8px; margin: 8px 0 4px; flex-wrap: wrap; }
+.cal-login-status { min-height: 1em; }
 /* 상태색 공통 */
 .cal-live .cal-dot, .cal-chip.cal-live .cal-dot { background: var(--ok); }
 .cal-sched .cal-dot { background: var(--accent); }

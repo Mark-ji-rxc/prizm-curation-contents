@@ -224,6 +224,37 @@ function saveState(s) {
 }
 let state = loadState();
 let officePostsCache = {}; // 백오피스 게시글 목록 캐시(캘린더용) — 환경별 {stage:{at,posts}, prod:{...}}
+let officeLoginJobs = {}; // 환경별 로그인 진행상태 {stage:{status,error}, prod:{...}}
+// 버튼 한 번으로 로그인: 헤드풀 브라우저를 띄우고 로그인 완료(localStorage 토큰 갱신)를 폴링해 세션 자동 저장
+function startOfficeLogin(env) {
+  env = env === 'prod' ? 'prod' : 'stage';
+  if (officeLoginJobs[env] && officeLoginJobs[env].status === 'running') return officeLoginJobs[env];
+  officeLoginJobs[env] = { status: 'running', startedAt: Date.now(), error: '' };
+  (async () => {
+    let chromium; try { ({ chromium } = require('playwright')); } catch { officeLoginJobs[env] = { status: 'failed', error: 'Playwright 미설치: npm i playwright && npx playwright install chromium' }; return; }
+    const off = require('./_officecfg').envConfig(env);
+    const decExp = (t) => { try { return JSON.parse(Buffer.from(t.split('.')[1], 'base64').toString()).exp * 1000; } catch { return null; } };
+    let browser;
+    try {
+      browser = await chromium.launch({ headless: false });
+      let closed = false; browser.on('disconnected', () => { closed = true; });
+      const ctx = await browser.newContext();
+      const page = await ctx.newPage();
+      await page.goto(off.baseUrl + '/display/discover/post/list').catch(() => {});
+      const deadline = Date.now() + 6 * 60 * 1000; // 최대 6분 대기
+      let ok = false;
+      while (Date.now() < deadline && !closed) {
+        const tok = await page.evaluate(() => { try { return localStorage.getItem('token'); } catch { return null; } }).catch(() => null);
+        if (tok) { const exp = decExp(tok); if (exp && exp > Date.now() + 60000) { ok = true; break; } } // 유효한(만료 안 된) 토큰 확인
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+      if (ok) { await ctx.storageState({ path: off.sessionFile }); officeLoginJobs[env] = { status: 'done', at: Date.now() }; delete officePostsCache[env]; }
+      else officeLoginJobs[env] = { status: 'failed', error: closed ? '창이 닫혔습니다(로그인 미완료).' : '시간 초과(6분) — 로그인 미완료.' };
+      try { await browser.close(); } catch {}
+    } catch (e) { try { if (browser) await browser.close(); } catch {} officeLoginJobs[env] = { status: 'failed', error: e.message }; }
+  })();
+  return officeLoginJobs[env];
+}
 
 // ── ⑥ 발행 큐(여러 콘텐츠를 발행 설정까지 준비해 대기, 그중 선택 등록) ──────────
 const PUBLISH_QUEUE_FILE = path.join(DIR, 'publish-queue.json');
@@ -1264,6 +1295,9 @@ const server = http.createServer(async (req, res) => {
     }
     // 로그인 세션 만료 정보(네트워크 없이 로컬 토큰 디코드) — 만료 임박 경고용. target=stage|prod
     if (p === '/api/office/session' && req.method === 'GET') { return sendJson(res, 200, require('./office-posts').sessionInfo(q.get('target'))); }
+    // 버튼 한 번으로 로그인: 브라우저 띄우고 로그인 완료를 자동 감지·세션 저장. target=stage|prod
+    if (p === '/api/publish/login' && req.method === 'POST') { const j = startOfficeLogin(q.get('target')); return sendJson(res, 200, { status: j.status }); }
+    if (p === '/api/publish/login/status' && req.method === 'GET') { const env = q.get('target') === 'prod' ? 'prod' : 'stage'; return sendJson(res, 200, officeLoginJobs[env] || { status: 'idle' }); }
 
     return sendErr(res, 404, 'unknown endpoint: ' + p);
   } catch (e) {
