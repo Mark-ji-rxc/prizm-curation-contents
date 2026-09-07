@@ -217,14 +217,15 @@
 
     <!-- brief 모드 전용 -->
     <div id="briefFields" class="hidden">
-      <label class="block">브리프 / 지시 (방향·컨셉·스토리)
-        <textarea id="bBrief" class="input" rows="5" placeholder="예: 도쿠시마 도미가 유명한데, 세계 3대 급류 나루토 해협의 거센 물살을 이겨내며 자라 뼈에 혹이 생길 정도이고 살이 탱글탱글해 맛이 좋다. 벚꽃 필 무렵 '사쿠라다이'가 최고. 이 컨셉으로 도쿠시마 여행을 추천하는 콘텐츠를 만들어줘."></textarea>
-      </label>
-      <div class="form">
-        <label>개수 <input id="bCount" class="input" type="number" min="1" max="10" value="1" /></label>
-        <button id="genBrief" class="btn primary">브리프로 콘텐츠 생성</button>
-        <span class="muted sm">현재 위의 구분·판매 조건·직접 선택 상품이 함께 적용됩니다. 검색을 켜면 사실을 확인해 더 정확·풍부하게 씁니다.</span>
+      <div class="gen-group-h">브리프 / 지시 <span class="muted sm">— 여러 건을 한 번에 지시하면 각각 독립 콘텐츠로 생성됩니다(백그라운드 병렬 처리)</span></div>
+      <div id="briefList"></div>
+      <button id="briefAdd" class="btn sm ghost">+ 브리프 추가</button>
+      <div class="brief-actions">
+        <label>브리프당 개수 <input id="bCount" class="input sm" type="number" min="1" max="10" value="1" /></label>
+        <button id="genBrief" class="btn primary lg">브리프 전체 생성</button>
+        <span class="muted sm">검색을 켜면 사실을 확인해 더 정확하게 씁니다. 생성되는 대로 아래 카드에 쌓이니, 이 탭을 열어둔 채 다른 일을 하셔도 됩니다.</span>
       </div>
+      <div id="briefBatch" class="brief-batch hidden"></div>
     </div>
     <div id="contentJobBanner" class="banner hidden"></div>
     <div class="saved-bar">

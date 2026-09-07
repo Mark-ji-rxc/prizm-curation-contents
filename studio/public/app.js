@@ -272,12 +272,69 @@ function renderTypeChips() {
 // 전체 상품이 0개(직접 선택도 없음)면 콘텐츠 생성 버튼들을 비활성화 + 안내
 function updateGenGate() {
   const empty = (typeTotal === 0) && !pickCodes.size && !regionModeOn(); // 조건에 맞는 상품이 하나도 없음(지역모드는 상품 불필요)
-  ['#genContent', '#matchContent', '#genBrief'].forEach((id) => { const b = $(id); if (b) b.disabled = empty; });
+  ['#genContent', '#matchContent'].forEach((id) => { const b = $(id); if (b) b.disabled = empty; }); // 브리프는 전체 상품 풀을 쓰므로 게이트 제외
   const note = $('#genEmptyNote'); if (note) note.classList.toggle('hidden', !empty);
 }
 $('#typeChips').addEventListener('click', (e) => { const c = e.target.closest('.chip'); if (!c || c.classList.contains('disabled')) return; const t = c.dataset.type; if (selTypes.has(t)) selTypes.delete(t); else selTypes.add(t); c.classList.toggle('sel'); });
 $('#matchContent').onclick = () => { if (!$('#mBody').value.trim()) return alert('매칭할 콘텐츠 본문을 입력하세요.'); submitGeneration({ mode: 'match', userTitle: $('#mTitle').value.trim(), userBody: $('#mBody').value.trim() }); };
-$('#genBrief').onclick = () => { const brief = $('#bBrief').value.trim(); if (!brief) return alert('브리프(지시)를 입력하세요.'); submitGeneration({ mode: 'brief', brief, count: $('#bCount').value }); };
+// ── 브리프 배치(여러 건 동시 지시) ──────────────────────────────────────────
+const BRIEF_MAX = 12;
+function addBriefRow(text) {
+  const list = $('#briefList');
+  const row = document.createElement('div'); row.className = 'brief-row';
+  row.innerHTML = `<textarea class="input brief-text" rows="2" placeholder="예: 대관령 억새 축제를 소개하는 감성 여행 콘텐츠를 만들어줘"></textarea>
+    <select class="input sm brief-scope" title="이 브리프의 상품 매칭 구분"><option value="">현재 구분</option><option value="domestic">국내</option><option value="overseas">해외</option></select>
+    <button class="btn sm ghost brief-del" title="삭제">✕</button>`;
+  if (text) row.querySelector('.brief-text').value = text;
+  row.querySelector('.brief-del').onclick = () => { if ($$('#briefList .brief-row').length > 1) row.remove(); else row.querySelector('.brief-text').value = ''; };
+  list.appendChild(row);
+}
+$('#briefAdd') && ($('#briefAdd').onclick = () => { if ($$('#briefList .brief-row').length >= BRIEF_MAX) return alert('한 번에 최대 ' + BRIEF_MAX + '건까지 지시할 수 있어요.'); addBriefRow(); });
+function renderBriefBatch(jobs) {
+  const el = $('#briefBatch'); if (!el) return; el.classList.remove('hidden');
+  const done = jobs.filter((j) => j.status === 'done').length, fail = jobs.filter((j) => j.status === 'failed').length;
+  const ICON = { pending: '⏳ 대기', running: '<span class="spinner"></span> 생성 중', done: '✅ 완료', failed: '⚠ 실패' };
+  el.innerHTML = `<div class="bb-head">브리프 배치 — 완료 <b>${done}</b> / 전체 ${jobs.length}${fail ? ` · 실패 ${fail}` : ''} <span class="muted sm">완료되는 대로 아래 카드에 쌓입니다</span></div>`
+    + jobs.map((j) => `<div class="bb-row bb-${j.status}"><span class="bb-st">${ICON[j.status] || j.status}</span><span class="bb-t">${esc(j.text.slice(0, 60))}${j.text.length > 60 ? '…' : ''}</span><span class="bb-m">${j.result != null ? j.result + '편' : (j.error ? esc(j.error.slice(0, 40)) : '')}</span></div>`).join('');
+}
+function pollBriefJob(j, jobs, scope) {
+  const stampCat = scope === 'overseas' ? 'overseas' : 'domestic';
+  let tries = 0;
+  const t = setInterval(async () => {
+    tries++;
+    try {
+      const s = await api('/api/content/job?id=' + j.jobId);
+      if (s.status === 'done' && s.items) {
+        clearInterval(t); s.items.forEach((it) => { it.category = stampCat; });
+        genItems.push(...s.items); renderContentCards(); markDone(2);
+        j.status = 'done'; j.result = s.items.length; renderBriefBatch(jobs);
+      }
+    } catch (e) { if (tries > 240) { clearInterval(t); j.status = 'failed'; j.error = e.message; renderBriefBatch(jobs); } }
+  }, 2000);
+}
+async function runBriefBatch() {
+  const rows = $$('#briefList .brief-row').map((r) => ({ text: r.querySelector('.brief-text').value.trim(), scope: r.querySelector('.brief-scope').value }));
+  const briefs = rows.filter((r) => r.text);
+  if (!briefs.length) return alert('브리프를 1건 이상 입력하세요.');
+  const count = $('#bCount').value;
+  const webOn = $('#cWeb') ? $('#cWeb').checked : true;
+  const model = $('#cModel').value;
+  const lens = bodyLenValues();
+  genItems = []; renderContentCards(); // 이번 배치 결과로 초기화
+  const jobs = briefs.map((b, i) => ({ i, text: b.text, scope: b.scope, status: 'pending', jobId: null, result: null }));
+  renderBriefBatch(jobs);
+  for (const j of jobs) {
+    const scope = j.scope || $('#cScope').value;
+    try {
+      const body = { mode: 'brief', brief: j.text, count, scope, webSearch: webOn, model, ...lens };
+      const { jobId, auto } = await api('/api/content/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      j.jobId = jobId; j.status = 'running'; j.auto = auto; renderBriefBatch(jobs);
+      if (!auto) showJobBanner($('#contentJobBanner'), '콘텐츠 생성 요청 처리해줘', '자동 처리가 꺼져 있어요. 이 문구를 Claude Code에 입력하면 대기 중인 브리프가 처리됩니다.');
+      pollBriefJob(j, jobs, scope);
+    } catch (e) { j.status = 'failed'; j.error = e.message; renderBriefBatch(jobs); }
+  }
+}
+$('#genBrief').onclick = () => runBriefBatch();
 
 $('#togglePicker').onclick = async () => { const el = $('#pickerPanel'); const show = el.classList.contains('hidden'); el.classList.toggle('hidden'); if (show && !pickerRows.length) await loadPicker(); };
 $('#pkClear').onclick = () => { pickCodes.clear(); $('#pickCount').textContent = 0; renderPicker(); updateGenGate(); };
@@ -366,13 +423,16 @@ function cardInner(it) {
     <div class="hotels"><b>매칭 호텔/여행지 (${hotels.length})</b><div class="meta">${hotelChips}</div></div>
     <div class="matched"><b>매칭 상품 ${it.matched ? '(' + it.matched.length + '개)' : ''}</b><ul>${matched}</ul></div>`;
 }
+let genItems = []; // 생성된 콘텐츠 누적(단건=교체, 브리프 배치=완료되는 대로 추가)
 function renderContentCards(items) {
+  if (items) genItems = items; // 하위호환: 인자 주면 교체
+  items = genItems;
   $('#contentCards').innerHTML = items.map((it, i) => `<div class="ccard" data-i="${i}">${cardInner(it)}
     <div class="card-actions"><button class="btn primary pick">이 콘텐츠 선택<br>→ 상품/쇼룸 선택</button><button class="btn edit">수정</button><button class="btn save">저장</button><button class="btn ref">모범</button></div></div>`).join('');
-  $$('#contentCards .pick').forEach((btn, i) => btn.onclick = () => selectContent(items[i]));
-  $$('#contentCards .save').forEach((btn, i) => btn.onclick = () => toggleSave(items[i], btn));
-  $$('#contentCards .ref').forEach((btn, i) => btn.onclick = () => toggleRef(items[i], btn));
-  $$('#contentCards .edit').forEach((btn, i) => btn.onclick = () => editContentCard(btn.closest('.ccard'), items[i], (edited) => { if (edited) items[i] = edited; renderContentCards(items); }));
+  $$('#contentCards .pick').forEach((btn, i) => btn.onclick = () => selectContent(genItems[i]));
+  $$('#contentCards .save').forEach((btn, i) => btn.onclick = () => toggleSave(genItems[i], btn));
+  $$('#contentCards .ref').forEach((btn, i) => btn.onclick = () => toggleRef(genItems[i], btn));
+  $$('#contentCards .edit').forEach((btn, i) => btn.onclick = () => editContentCard(btn.closest('.ccard'), genItems[i], (edited) => { if (edited) genItems[i] = edited; renderContentCards(); }));
 }
 // 카드 텍스트(제목·본문·형·화자) 인라인 수정
 function editContentCard(cardEl, item, onDone) {
@@ -1196,6 +1256,7 @@ function showDayDetail(d) {
 
 // ── 초기화 ───────────────────────────────────────────────────────────────────
 (async function init() {
+  if ($('#briefList') && !$$('#briefList .brief-row').length) addBriefRow(); // 브리프 기본 1행
   loadThemes();
   loadRegions();
   renderFormChips();

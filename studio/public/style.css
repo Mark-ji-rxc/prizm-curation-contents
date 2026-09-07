@@ -342,6 +342,19 @@ label.block { margin-top: var(--sp-2); }
 
 .len-inputs { display: inline-flex; align-items: center; gap: 6px; }
 .len-inputs .input { width: 78px; }
+/* 브리프 배치 */
+.brief-row { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 8px; }
+.brief-row .brief-text { flex: 1; min-width: 0; }
+.brief-row .brief-scope { width: 96px; flex: none; }
+.brief-actions { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-2); }
+.brief-batch { margin-top: var(--sp-3); border: 1px solid var(--line); border-radius: 8px; padding: var(--sp-2); }
+.bb-head { font-size: var(--fs-desc); font-weight: 600; margin-bottom: 6px; }
+.bb-row { display: flex; align-items: center; gap: 10px; padding: 5px 4px; border-top: 1px solid var(--line); font-size: var(--fs-desc); }
+.bb-st { flex: none; width: 78px; }
+.bb-t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bb-m { flex: none; color: var(--muted); font-size: var(--fs-meta); }
+.bb-done .bb-st { color: var(--ok); }
+.bb-failed .bb-st { color: #dc2626; }
 /* 발행 대상(환경) 라디오 — 프로덕션은 경고색으로 구분 */
 .pf-target label { border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; cursor: pointer; }
 .pf-target label:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
