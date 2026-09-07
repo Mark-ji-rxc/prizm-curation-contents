@@ -355,6 +355,17 @@ label.block { margin-top: var(--sp-2); }
 .bb-m { flex: none; color: var(--muted); font-size: var(--fs-meta); }
 .bb-done .bb-st { color: var(--ok); }
 .bb-failed .bb-st { color: #dc2626; }
+/* 최근 생성 결과 복원 */
+.recent-bar { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: var(--sp-2) 0; }
+.recent-panel { border: 1px solid var(--line); border-radius: 8px; padding: var(--sp-2); margin-bottom: var(--sp-3); max-height: 340px; overflow-y: auto; }
+.rc-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: var(--fs-desc); font-weight: 600; margin-bottom: 6px; flex-wrap: wrap; }
+.rc-row { display: flex; align-items: center; gap: 10px; padding: 6px 4px; border-top: 1px solid var(--line); font-size: var(--fs-desc); }
+.rc-st { flex: none; width: 76px; }
+.rc-t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rc-m { flex: none; color: var(--muted); font-size: var(--fs-meta); white-space: nowrap; }
+.rc-a { flex: none; }
+.rc-done .rc-st { color: var(--ok); }
+.rc-failed .rc-st { color: #dc2626; }
 /* 발행 대상(환경) 라디오 — 프로덕션은 경고색으로 구분 */
 .pf-target label { border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; cursor: pointer; }
 .pf-target label:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }

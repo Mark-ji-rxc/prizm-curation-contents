@@ -817,6 +817,21 @@ const server = http.createServer(async (req, res) => {
       if (!job) return sendErr(res, 404, 'job 없음');
       return sendJson(res, 200, { id: job.id, status: job.status, input: job.input, items: (job.output && job.output.items) || null, usage: job.usage || null });
     }
+    // 최근 생성 잡 목록(새로고침/재접속 후 결과 복원용)
+    if (p === '/api/content/recent') {
+      const limit = Math.min(Number(q.get('limit')) || 30, 100);
+      const list = jobs.listJobs('content').sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, limit);
+      const out = list.map((j) => {
+        const inp = j.input || {}; let label;
+        if (inp.mode === 'brief') label = (inp.brief || '').slice(0, 70) || '브리프';
+        else if (inp.mode === 'match') label = '내 콘텐츠 매칭';
+        else if (inp.regionMode) label = '지역: ' + ((inp.regions || []).join(', ') || inp.region || '') + (inp.festival ? ' · 축제' : '');
+        else label = (inp.topic ? inp.topic : '자동 주제') + (inp.scope === 'overseas' ? ' (해외)' : ' (국내)');
+        const items = (j.output && j.output.items) || null;
+        return { id: j.id, status: j.status, mode: inp.mode || 'generate', regionMode: !!inp.regionMode, festival: !!inp.festival, scope: inp.scope || '', label, count: items ? items.length : null, createdAt: j.createdAt };
+      });
+      return sendJson(res, 200, { jobs: out });
+    }
     // 콘텐츠 개별 저장(즐겨찾기)
     if (p === '/api/saved') {
       if (req.method === 'GET') return sendJson(res, 200, { items: categorizeSaved(loadSaved()) });

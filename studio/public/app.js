@@ -336,6 +336,50 @@ async function runBriefBatch() {
 }
 $('#genBrief').onclick = () => runBriefBatch();
 
+// ── 최근 생성 결과 복원 ─────────────────────────────────────────────────────
+const loadedRecent = new Set(); // 이미 카드로 불러온 job id
+let recentTimer = null;
+function relTime(iso) { try { const d = Date.parse(iso); const s = Math.floor((Date.now() - d) / 1000); if (s < 60) return '방금'; if (s < 3600) return Math.floor(s / 60) + '분 전'; if (s < 86400) return Math.floor(s / 3600) + '시간 전'; return new Date(d).toLocaleDateString('ko-KR'); } catch { return ''; } }
+async function loadRecent() {
+  const el = $('#recentPanel'); if (!el) return;
+  let list = [];
+  try { const r = await api('/api/content/recent?limit=30'); list = r.jobs || []; }
+  catch (e) { el.innerHTML = '<div class="muted sm">불러오기 실패: ' + esc(e.message) + '</div>'; return; }
+  const doneLoadable = list.filter((j) => j.status === 'done' && j.count && !loadedRecent.has(j.id));
+  const anyPending = list.some((j) => j.status === 'pending');
+  const ST = { pending: '<span class="spinner"></span> 생성 중', done: '✅ 완료', failed: '⚠ 실패' };
+  el.innerHTML = `<div class="rc-head"><span>최근 생성 ${list.length}건</span>
+      <span class="row gap"><button class="btn sm" id="rc-refresh">새로고침</button>${doneLoadable.length ? `<button class="btn sm primary" id="rc-loadall">완료 ${doneLoadable.length}건 모두 불러오기</button>` : ''}</span></div>`
+    + (list.length ? list.map((j) => {
+      const loaded = loadedRecent.has(j.id);
+      const canLoad = j.status === 'done' && j.count;
+      return `<div class="rc-row rc-${j.status}"><span class="rc-st">${ST[j.status] || j.status}</span>
+        <span class="rc-t">${esc(j.label)}</span>
+        <span class="rc-m">${j.count != null ? j.count + '편' : ''} · ${relTime(j.createdAt)}</span>
+        <span class="rc-a">${canLoad ? (loaded ? '<span class="muted sm">불러옴</span>' : `<button class="btn sm rc-load" data-id="${esc(j.id)}">불러오기</button>`) : ''}</span></div>`;
+    }).join('') : '<div class="muted sm">아직 생성 기록이 없어요.</div>');
+  $('#rc-refresh') && ($('#rc-refresh').onclick = () => loadRecent());
+  $('#rc-loadall') && ($('#rc-loadall').onclick = async () => { for (const j of doneLoadable) await loadRecentJob(j.id); });
+  $$('#recentPanel .rc-load').forEach((b) => b.onclick = () => loadRecentJob(b.dataset.id));
+  // 진행 중 잡이 있으면 자동 새로고침(패널 열려 있을 때만)
+  clearTimeout(recentTimer);
+  if (anyPending && !el.classList.contains('hidden')) recentTimer = setTimeout(loadRecent, 3000);
+}
+async function loadRecentJob(id) {
+  if (loadedRecent.has(id)) return;
+  try {
+    const s = await api('/api/content/job?id=' + encodeURIComponent(id));
+    if (s.status === 'done' && s.items && s.items.length) {
+      const cat = (s.input && s.input.scope === 'overseas') ? 'overseas' : 'domestic';
+      s.items.forEach((it) => { if (!it.category) it.category = cat; });
+      genItems.push(...s.items); loadedRecent.add(id); renderContentCards(); markDone(2);
+      $('#contentCards').scrollIntoView({ block: 'start' });
+    }
+  } catch (e) { alert('불러오기 실패: ' + e.message); }
+  loadRecent();
+}
+$('#toggleRecent') && ($('#toggleRecent').onclick = () => { const el = $('#recentPanel'); const show = el.classList.contains('hidden'); el.classList.toggle('hidden'); if (show) loadRecent(); else clearTimeout(recentTimer); });
+
 $('#togglePicker').onclick = async () => { const el = $('#pickerPanel'); const show = el.classList.contains('hidden'); el.classList.toggle('hidden'); if (show && !pickerRows.length) await loadPicker(); };
 $('#pkClear').onclick = () => { pickCodes.clear(); $('#pickCount').textContent = 0; renderPicker(); updateGenGate(); };
 ['#pkSource', '#pkHotel', '#pkType', '#pkKeyword'].forEach((s) => $(s).addEventListener('input', () => { if (s === '#pkSource' || s === '#pkType' || s === '#pkHotel') fillPickHotels(); renderPicker(); }));
