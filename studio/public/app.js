@@ -724,9 +724,45 @@ async function setupProductStep() {
   exposureType = 'goods';
   const g = document.querySelector('input[name="expoType"][value="goods"]'); if (g) g.checked = true;
   renderProductPick();
+  if (!pickerRows.length) { try { await loadPicker(); } catch {} } // 검색용 전체 상품 로드
+  const q = $('#itemSearchQuery'); if (q) q.value = '';
+  renderItemSelected(); renderItemSearch();
   await loadShowroomCandidates(); renderShowroomPick();
   setExposure('goods');
 }
+// ③ 상품 검색해서 추가 — 전체 상품(pickerRows)에서 이름·ID·지역·호텔·코드로 검색
+function normProd(r) { return { productId: String(r.productId || r.productCode || ''), productCode: r.productCode || '', productName: r.name || r.productName || '', hotel: r.hotel || r.region || '', region: r.region || '', price: r.price, status: r.status || '판매중' }; }
+function renderItemSelected() {
+  const el = $('#itemSelected'); if (!el) return;
+  const vals = [...selectedProducts.values()];
+  el.innerHTML = vals.length ? `<div class="isel-h">선택된 상품 (${vals.length})</div>` + vals.map((m) => `<span class="isel-chip">${esc(m.productName || m.hotel || m.productId)} <code>${esc(m.productId || '')}</code> <b class="isel-x" data-id="${esc(m.productId)}">✕</b></span>`).join('') : '';
+  $$('#itemSelected .isel-x').forEach((b) => b.onclick = () => { selectedProducts.delete(b.dataset.id); renderItemSelected(); renderItemSearch(); renderProductPick(); });
+}
+function renderItemSearch() {
+  const el = $('#itemSearchResults'); if (!el) return;
+  const q = (($('#itemSearchQuery') && $('#itemSearchQuery').value) || '').trim().toLowerCase();
+  const src = ($('#itemSearchSrc') && $('#itemSearchSrc').value) || '';
+  if (!q) { el.innerHTML = '<div class="muted sm">검색어를 입력하면 상품이 나옵니다.</div>'; return; }
+  const rows = pickerRows.filter((r) => {
+    if (src && r.source !== src) return false;
+    return `${r.name || ''} ${r.hotel || ''} ${r.region || ''} ${r.productId || ''} ${r.productCode || ''}`.toLowerCase().includes(q);
+  }).slice(0, 100);
+  el.innerHTML = rows.map((r, i) => {
+    const pid = String(r.productId || r.productCode || '');
+    return `<div class="pick-row ${selectedProducts.has(pid) ? 'sel' : ''}">
+      <label class="pick-check"><input type="checkbox" ${selectedProducts.has(pid) ? 'checked' : ''} data-i="${i}" /></label>
+      <div class="pick-main"><div class="pick-name">${esc(r.name || '')}</div>
+        <div class="pick-sub">${esc(r.hotel || r.region || '')} · 상품ID <code>${esc(r.productId || '-')}</code> · 코드 <code>${esc(r.productCode || '-')}</code> · ${won(r.price)}${r.status && r.status !== '판매중' ? ' · ' + esc(r.status) : ''} · ${r.source === 'overseas' ? '해외' : '국내'}</div></div>
+    </div>`;
+  }).join('') || '<div class="muted sm">검색 결과가 없어요.</div>';
+  $$('#itemSearchResults input[type=checkbox]').forEach((cb) => cb.onchange = () => {
+    const r = rows[+cb.dataset.i]; const m = normProd(r);
+    if (cb.checked) selectedProducts.set(m.productId, m); else selectedProducts.delete(m.productId);
+    cb.closest('.pick-row').classList.toggle('sel', cb.checked);
+    renderItemSelected(); renderProductPick();
+  });
+}
+['#itemSearchQuery', '#itemSearchSrc'].forEach((s) => { const el = $(s); if (el) el.addEventListener('input', renderItemSearch); });
 function updateProdHint() {
   const c = selectedContent || {};
   if (exposureType === 'showroom') $('#prodStepHint').textContent = `콘텐츠 「${c.title || ''}」 · 추천 쇼룸 중 노출할 쇼룸을 선택 (미선택 시 전체)`;
@@ -735,6 +771,7 @@ function updateProdHint() {
 function setExposure(t) {
   exposureType = t;
   $('#productPick').classList.toggle('hidden', t !== 'goods');
+  const isw = $('#itemSearchWrap'); if (isw) isw.classList.toggle('hidden', t !== 'goods');
   $('#showroomPick').classList.toggle('hidden', t !== 'showroom');
   updateProdHint();
 }

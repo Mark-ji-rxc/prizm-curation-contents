@@ -342,6 +342,18 @@ label.block { margin-top: var(--sp-2); }
 
 .len-inputs { display: inline-flex; align-items: center; gap: 6px; }
 .len-inputs .input { width: 78px; }
+/* ③ 상품 검색해서 추가 */
+#itemSearchWrap { margin-top: var(--sp-3); border-top: 1px solid var(--line); padding-top: var(--sp-3); }
+.item-search-h { font-size: var(--fs-heading); font-weight: 600; margin-bottom: var(--sp-2); }
+.item-search-bar { display: flex; gap: 8px; margin-bottom: var(--sp-2); }
+.item-search-bar .input { flex: 1; min-width: 0; }
+.item-search-bar .input.sm { flex: none; width: 120px; }
+.item-selected { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: var(--sp-2); }
+.item-selected .isel-h { font-size: var(--fs-meta); color: var(--muted); width: 100%; }
+.isel-chip { background: color-mix(in srgb, var(--accent) 10%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 999px; padding: 3px 10px; font-size: var(--fs-meta); }
+.isel-chip code { background: rgba(0,0,0,.06); padding: 0 4px; border-radius: 4px; }
+.isel-x { cursor: pointer; color: var(--muted); margin-left: 2px; }
+.isel-x:hover { color: #dc2626; }
 /* 브리프 배치 */
 .brief-row { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 8px; }
 .brief-row .brief-text { flex: 1; min-width: 0; }

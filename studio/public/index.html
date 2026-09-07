@@ -303,6 +303,15 @@
       <span class="muted sm">쇼룸 = 국내 호텔명 / 해외 지역명. 상품·쇼룸 중 하나를 노출합니다.</span>
     </div>
     <div id="productPick" class="pick-list"></div>
+    <div id="itemSearchWrap">
+      <div class="item-search-h">상품 검색해서 추가 <span class="muted sm">— 추천에 없거나 다른 상품을 넣고 싶을 때 (상품명·상품ID·지역·호텔·코드로 검색)</span></div>
+      <div class="item-search-bar">
+        <input id="itemSearchQuery" class="input" placeholder="예: 나트랑 / 99762 / 페어몬트 / 오션뷰" />
+        <select id="itemSearchSrc" class="input sm"><option value="">국내+해외</option><option value="domestic">국내</option><option value="overseas">해외</option></select>
+      </div>
+      <div id="itemSelected" class="item-selected"></div>
+      <div id="itemSearchResults" class="pick-list"></div>
+    </div>
     <div id="showroomPick" class="pick-list hidden"></div>
   </section>
 
