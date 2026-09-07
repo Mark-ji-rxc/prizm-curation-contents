@@ -45,3 +45,4 @@ nas-image-explorer/
 node_modules/
 .DS_Store
 *.log
+studio/notion-sync.json

@@ -304,6 +304,49 @@ function buildPublishDraft() {
     target: 'stage', // 발행 대상 환경: 'stage'(기본) | 'prod' — 등록 단계에서 선택
   };
 }
+// ── 노션 리스트업(발행 대기목록 → 노션 DB 검토용) ──────────────────────────────
+const NOTION_SYNC_FILE = path.join(DIR, 'notion-sync.json');
+function loadNotionSync() { return loadJson(NOTION_SYNC_FILE) || {}; }
+// 발행 대기목록 → 노션 행(예시 DB 스키마 + 상품 ID 컬럼)
+function notionRowsFromQueue() {
+  const typeOf = (x) => { const img = (x.images || []).length > 0; if (x.exposure === 'showroom') return img ? '이미지+쇼룸' : '쇼룸(기본)'; if (x.mediaMode === 'custom') return '상품(커스터마이징)'; if (x.mediaMode === 'normal' || img) return '이미지+상품'; return '상품(기본)'; };
+  return loadPublishQueue().map((x) => {
+    const goods = (x.items || []).filter((i) => i.kind !== 'showroom' && i.productId);
+    const pids = goods.map((i) => i.productId);
+    const codes = ((x.content && x.content.matched) || []).map((m) => m.productCode).filter(Boolean);
+    const ids = x.exposure === 'showroom' ? (x.items || []).map((i) => i.showroomName).filter(Boolean) : (codes.length ? codes : pids);
+    const dp = x.displayPeriod || {};
+    return {
+      '게시글 제목': (x.content && x.content.title) || '(제목 없음)',
+      '상태': '검토 대기',
+      '게시글 유형': [typeOf(x)],
+      '발행 형태': ['쇼룸'],
+      '발행쇼룸': x.publisherShowroom ? [x.publisherShowroom] : [],
+      '본문': (x.content && x.content.body) || '',
+      '상품 ID': pids.join(', '),
+      '상품/콘텐츠/쇼룸 아이디': ids.join(', '),
+      '키워드': (x.filterKeywords || []).map((k) => k.name || k).join(', '),
+      periodStart: dp.start || '', periodEnd: dp.unlimited ? '' : (dp.end || ''), unlimited: !!dp.unlimited,
+      domain: x.domain, target: x.target || 'stage', queueId: x.id,
+    };
+  });
+}
+function buildNotionExportJob() {
+  const sync = loadNotionSync();
+  const rows = notionRowsFromQueue();
+  const dom = sync.domestic || {}, ovs = sync.overseas || {};
+  const schemaLine = '스키마: 게시글 제목(title) / 상태(select: 검토 대기·편성 확정·편성 완료) / 게시글 유형(multi_select) / 발행 형태(multi_select) / 발행쇼룸(multi_select) / 본문(text) / 게재 기간(date) / 상품 ID(text) / 상품/콘텐츠/쇼룸 아이디(text) / 키워드(text) / 첨부이미지(file)';
+  const instructions = [
+    '이 요청은 "발행 대기목록을 노션 DB로 리스트업(검토용)" 입니다. 국내/해외 DB를 따로 씁니다. Notion MCP로 처리하세요.',
+    `라우팅: rows[].domain 이 "overseas" 면 해외 DB, 그 외(domestic·common)는 국내 DB에 추가한다.`,
+    dom.dataSourceId ? `국내 데이터소스: collection://${dom.dataSourceId} (이미 있음).` : `국내 DB가 없으면 제목 "발행 대기목록 검토 (국내)"로 새로 만든다 — ${schemaLine}.`,
+    ovs.dataSourceId ? `해외 데이터소스: collection://${ovs.dataSourceId} (이미 있음).` : `해외 DB가 없으면 제목 "발행 대기목록 검토 (해외)"로 새로 만든다 — ${schemaLine}.`,
+    '각 row를 해당 DB에 페이지로 추가하되, 같은 "게시글 제목"이 이미 있으면 갱신(중복 생성 금지).',
+    'rows[].게재 기간은 periodStart/periodEnd/unlimited로 date 설정(unlimited면 종료 없음, datetime이면 is_datetime=1). 나머지 키는 컬럼명과 동일 매핑. 상태는 모두 "검토 대기"로.',
+    '완료 시 status "done", output: { domestic:{databaseId,dataSourceId,url}, overseas:{databaseId,dataSourceId,url}, count }. (사람이 노션에서 검토→상태를 "편성 확정"으로 바꾸면 그 건만 등록 대상)',
+  ].join('\n');
+  return jobs.createJob('notion', { input: { model: 'opus' }, domestic: dom, overseas: ovs, rows, instructions, output: null });
+}
 // 크롤 데이터 인덱스(상품코드/ID → 상품). 판매종료일·상시판매 조회용.
 function crawlSaleIndex() {
   const m = new Map();
@@ -1298,6 +1341,21 @@ const server = http.createServer(async (req, res) => {
     // 버튼 한 번으로 로그인: 브라우저 띄우고 로그인 완료를 자동 감지·세션 저장. target=stage|prod
     if (p === '/api/publish/login' && req.method === 'POST') { const j = startOfficeLogin(q.get('target')); return sendJson(res, 200, { status: j.status }); }
     if (p === '/api/publish/login/status' && req.method === 'GET') { const env = q.get('target') === 'prod' ? 'prod' : 'stage'; return sendJson(res, 200, officeLoginJobs[env] || { status: 'idle' }); }
+    // 발행 대기목록 → 노션 리스트업(검토용). Claude(MCP)가 job 처리
+    if (p === '/api/publish/notion-export' && req.method === 'POST') {
+      const job = buildNotionExportJob();
+      if (!(job.rows || []).length) return sendErr(res, 400, '발행 대기목록이 비어 있습니다.');
+      const auto = dispatchToClaude(job.id, 'notion');
+      const s = loadNotionSync();
+      return sendJson(res, 200, { jobId: job.id, count: job.rows.length, domesticUrl: (s.domestic && s.domestic.url) || '', overseasUrl: (s.overseas && s.overseas.url) || '', auto });
+    }
+    if (p === '/api/publish/notion-export/job') {
+      const job = jobs.readJob(q.get('id')); if (!job) return sendErr(res, 404, 'job 없음');
+      if (job.status === 'done' && job.output && (job.output.domestic || job.output.overseas)) { // 완료 시 DB 정보 저장(재사용)
+        try { const cur = loadNotionSync(); fs.writeFileSync(NOTION_SYNC_FILE, JSON.stringify({ domestic: job.output.domestic || cur.domestic, overseas: job.output.overseas || cur.overseas }, null, 2)); } catch {}
+      }
+      return sendJson(res, 200, { status: job.status, output: job.output || null });
+    }
 
     return sendErr(res, 404, 'unknown endpoint: ' + p);
   } catch (e) {

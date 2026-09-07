@@ -1007,6 +1007,24 @@ $('#toPublish').onclick = async () => {
   await addCurrentToQueue(); goStep(6);
 };
 $('#pubAddCurrent').onclick = () => addCurrentToQueue();
+// 발행 대기목록 → 노션 리스트업(국내/해외 DB 각각, 검토용)
+$('#notionListup') && ($('#notionListup').onclick = async () => {
+  const b = $('#notionBanner'); b.classList.remove('hidden');
+  b.innerHTML = '<span class="spinner"></span> 노션 리스트업 요청 중…';
+  const links = (d, o) => `${d ? `<a href="${d}" target="_blank">국내 DB</a>` : ''}${o ? ` · <a href="${o}" target="_blank">해외 DB</a>` : ''}`;
+  try {
+    const r = await api('/api/publish/notion-export', { method: 'POST' });
+    const l = links(r.domesticUrl, r.overseasUrl);
+    b.innerHTML = r.auto ? `<span class="spinner"></span> ${r.count}건 노션에 반영 중…${l ? ' · ' + l : ''}`
+      : `요청 준비됨 (${r.count}건). Claude Code에 <b>"노션 리스트업 처리해줘"</b> 입력 시 반영됩니다.${l ? ' · ' + l : ''}`;
+    let tries = 0;
+    const t = setInterval(async () => { tries++; let s; try { s = await api('/api/publish/notion-export/job?id=' + r.jobId); } catch { return; }
+      if (s.status === 'done') { clearInterval(t); const o = s.output || {}; const du = (o.domestic && o.domestic.url) || r.domesticUrl; const ou = (o.overseas && o.overseas.url) || r.overseasUrl;
+        b.innerHTML = `✅ 노션 리스트업 완료 (${o.count != null ? o.count : r.count}건) · ${links(du, ou)} <span class="muted sm">— 노션에서 검토 후 상태를 '편성 확정'으로 바꾸세요</span>`; }
+      else if (tries > 150) clearInterval(t);
+    }, 2000);
+  } catch (e) { b.innerHTML = '오류: ' + esc(e.message); }
+});
 
 async function addCurrentToQueue() {
   try {

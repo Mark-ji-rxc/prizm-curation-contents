@@ -366,8 +366,9 @@
     <div class="row between">
       <div><h2>콘텐츠 등록 (발행)</h2>
       <p class="muted">여러 콘텐츠를 발행 설정까지 준비해 대기목록에 쌓고, 선택한 콘텐츠를 실제 백오피스에 등록합니다. (실제 등록 자동화는 Phase 2)</p></div>
-      <button id="pubAddCurrent" class="btn sm">+ 현재 콘텐츠 추가</button>
+      <div class="row gap"><button id="notionListup" class="btn sm">📋 노션 리스트업</button><button id="pubAddCurrent" class="btn sm">+ 현재 콘텐츠 추가</button></div>
     </div>
+    <div id="notionBanner" class="banner hidden"></div>
     <div class="publish-layout">
       <aside class="pub-queue">
         <div class="pub-queue-h">발행 대기목록 (<span id="pubCount">0</span>)</div>
