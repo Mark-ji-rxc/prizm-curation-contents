@@ -82,6 +82,9 @@ async function publishItem(item, stagedFiles, customImages) {
     }
     // (쇼룸 노출은 별도 — 아이템 쇼룸 탭. 후속 확장)
 
+    // 5-2) 필터 키워드 — 등록된 키워드는 자동완성에서 선택, 신규는 [키워드 관리]에서 먼저 등록 후 선택
+    await setFilterKeywords(page, item.filterKeywords, step);
+
     // 6) 전시 기간(필수)
     const dp = item.displayPeriod || {};
     if (dp.start) await page.locator('input[type=datetime-local]').first().fill(dp.start.slice(0, 16));
@@ -140,6 +143,46 @@ async function fillCustomRows(page, goods, customImages, step) {
     }
   }
   step('custom 행별 설정 — 설명 ' + descN + ' · 이미지 ' + imgN + '개');
+}
+
+// 필터 키워드 설정: 각 키워드를 자동완성에서 선택. 없으면(미등록) [키워드 관리]에서 등록 후 재선택.
+async function setFilterKeywords(page, keywords, step) {
+  const list = (keywords || []).map((k) => (typeof k === 'string' ? k : (k && k.name) || '')).map((s) => String(s).trim()).filter(Boolean);
+  if (!list.length) return;
+  const kwInput = page.getByPlaceholder('키워드 검색').first();
+  if (!(await kwInput.count())) { step('필터 키워드 입력란 없음 — 건너뜀'); return; }
+  let added = 0;
+  for (const name of list) {
+    let ok = await selectKeywordOption(page, kwInput, name);
+    if (!ok) { await registerKeyword(page, name, step); ok = await selectKeywordOption(page, kwInput, name); } // 신규: 등록 후 재시도
+    if (ok) added++; else step('필터 키워드 실패(선택/등록 안 됨): ' + name);
+  }
+  step('필터 키워드 ' + added + '/' + list.length + '개');
+}
+// 자동완성에서 키워드 옵션 선택(있으면 true). 옵션 텍스트는 "키워드\n(N개)" 형태
+async function selectKeywordOption(page, kwInput, name) {
+  await kwInput.click(); await kwInput.fill(''); await kwInput.type(name);
+  await page.waitForTimeout(900);
+  let opt = page.getByRole('option').filter({ hasText: name }).first();
+  if (!(await opt.count())) { await page.waitForTimeout(900); opt = page.getByRole('option').filter({ hasText: name }).first(); } // 등록 직후 반영 지연 대비 1회 더
+  if (await opt.count()) { await opt.click().catch(() => {}); await page.waitForTimeout(400); await kwInput.fill(''); return true; }
+  await page.keyboard.press('Escape').catch(() => {});
+  return false;
+}
+// [키워드 관리] 모달에서 신규 키워드 등록(aria-label 버튼 = 톱니바퀴)
+async function registerKeyword(page, name, step) {
+  const gear = page.locator('button[aria-label="키워드 관리"]').first();
+  if (!(await gear.count())) return;
+  await gear.click(); await page.waitForTimeout(700);
+  const dlg = page.getByRole('dialog').first();
+  await dlg.waitFor({ timeout: 5000 }).catch(() => {});
+  const inp = page.getByPlaceholder('키워드명을 입력해주세요.').first();
+  await inp.fill(name);
+  await dlg.getByRole('button', { name: '등록' }).click().catch(() => {});
+  await page.waitForTimeout(900);
+  step('키워드 신규 등록: ' + name);
+  await dlg.getByRole('button', { name: '닫기' }).click().catch(async () => { await page.keyboard.press('Escape').catch(() => {}); });
+  await page.waitForTimeout(500);
 }
 
 // 상품조회 모달 검색조건 선택 (MUI Select = role=button name "searchType"). 옵션: 전체/상품ID/상품명
@@ -208,4 +251,4 @@ async function selectGoodsInModal(page, modal, g) {
 }
 function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
-module.exports = { publishItem, __test: { selectGoodsInModal, cleanName, searchFragment, matchRowByName } };
+module.exports = { publishItem, __test: { selectGoodsInModal, cleanName, searchFragment, matchRowByName, setFilterKeywords } };

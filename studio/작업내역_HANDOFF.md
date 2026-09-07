@@ -128,6 +128,8 @@ PRIZM 콘텐츠 제작 전 과정( **크롤링 → 콘텐츠 생성 → 상품 �
 
 ## 변경 이력
 
+- **2026-09-07 (발행: 필터 키워드 자동 처리 + 신규는 키워드 관리에서 등록)**: 발행 자동화(publisher)가 **필터 키워드**를 처리하도록 추가(기존엔 미처리). 백오피스 구조 실측: 필터 키워드 입력은 **등록된 키워드만** 자동완성(`placeholder "키워드 검색"`, MUI Autocomplete combobox[name=keywords], 옵션 "키워드\\n(N개)")에서 선택 가능하고, **신규 키워드는 오른쪽 톱니바퀴(`button[aria-label="키워드 관리"]`)→모달(placeholder "키워드명을 입력해주세요." + 등록/닫기)에서 먼저 등록해야** 함. `setFilterKeywords()`: 각 키워드를 ①자동완성에서 선택 시도 → ②없으면 registerKeyword(톱니→모달 등록→닫기) 후 재선택. 아이템 추가와 전시기간 사이에 실행. isNew 플래그와 무관하게 select-first→register-fallback로 견고. 검증(stage): 기존 '테스트' 직접 선택 + 신규 자동등록→선택, 칩 2개·"필터 키워드 2/2개". __test.setFilterKeywords 노출. ※ stage에 테스트 키워드 1개 생성됨(원하면 키워드 관리에서 삭제).
+
 - **2026-09-07 (친근한 말투 + 발행단계 버튼 로그인)**: ① **말투 친근화**(요청): 딱딱한 격식체(~입니다/~습니다/~하십시오/~좋을까요?) 금지, 친근한 반말·부드러운 해요체(~해요/~거든요/~봐요) 사용을 `toneRule`·`CONTENT_RULES.톤`·제작가이드 md에 반영(한 편 안에서 반말/해요체 일관은 유지). ② **발행 단계 버튼 로그인**(요청): 발행 실행 시 세션 없으면 터미널 안내 대신, 확인창→[스튜디오에서 바로 로그인](브라우저 열림·로그인 자동감지·세션저장) 후 세션 재확인하고 이어서 발행. `officeLogin`을 공용 `runOfficeLogin(target,statusEl)→Promise<boolean>`로 리팩터(캘린더 배너 래퍼 유지), runPublish no-session 분기에서 재사용. 검증(8793): 톤 규칙 지시문·rules 반영, 클라 runOfficeLogin/officeLogin/runPublish 정상 로드.
 
 - **2026-09-07 (③ 상품 검색해서 추가)**: 아이템 선택(상품 노출) 단계에 **전체 상품 검색·추가** 기능. 추천 상품(matched)이 0개거나 부족할 때, 크롤 전체 상품(`/api/products/pick`, pickerRows)에서 **상품명·상품ID·지역·호텔·코드**로 검색해 골라 담는다. index.html `#itemSearchWrap`(검색 input + 국내/해외 필터 + 선택칩 `#itemSelected` + 결과 `#itemSearchResults`). app.js `renderItemSearch()`(부분일치, 최대 100), `renderItemSelected()`(선택 상품 칩·삭제), `normProd()`로 정규화 후 `selectedProducts`에 추가 → 기존 confirm(exposure) 흐름 그대로 사용. setupProductStep에서 pickerRows 로드, setExposure가 goods일 때만 노출. 검증(8790): '나트랑'→17건·상품ID '100423'→1건, 2건 선택 시 selectedProducts 2·confirm 대상에 반영.
