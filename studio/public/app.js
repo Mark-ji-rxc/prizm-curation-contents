@@ -1061,7 +1061,7 @@ function renderPubEditor() {
   const isShowroom = it.exposure === 'showroom'; // 노출 종류: 쇼룸이면 쇼룸명만, 상품이면 상품명만
   el.innerHTML = `<div class="pub-form">
     <div class="pf-row"><label>발행 대상</label><div class="pf-radios pf-target">
-      ${['stage', 'prod'].map((t) => `<label class="${t === 'prod' ? 'tgt-prod' : 'tgt-stage'}"><input type="radio" name="pf-target" value="${t}" ${(it.target || 'stage') === t ? 'checked' : ''}/> ${t === 'prod' ? '프로덕션(실서버)' : '스테이지(테스트)'}</label>`).join('')}</div></div>
+      ${['stage', 'prod'].map((t) => `<label class="${t === 'prod' ? 'tgt-prod' : 'tgt-stage'}"><input type="radio" name="pf-target" value="${t}" ${(it.target || 'prod') === t ? 'checked' : ''}/> ${t === 'prod' ? '프로덕션(실서버)' : '스테이지(테스트)'}</label>`).join('')}</div></div>
     <div class="pf-row"><label>발행 도메인</label><div class="pf-radios">
       ${['common', 'domestic', 'overseas'].map((d) => `<label><input type="radio" name="pf-domain" value="${d}" ${it.domain === d ? 'checked' : ''}/> ${DOMAIN_LABEL[d]}</label>`).join('')}</div></div>
     <div class="pf-row"><label>발행 주체(쇼룸)</label><input class="input" id="pf-showroom" value="${esc(it.publisherShowroom || '')}" placeholder="국내=체크인 / 해외=인트립 / 공통=직접 입력" /></div>
@@ -1103,7 +1103,7 @@ function wirePubEditor(it) {
   $('#pf-del').onclick = async () => { if (!confirm('대기목록에서 삭제할까요?')) return; await api('/api/publish/queue?id=' + encodeURIComponent(it.id), { method: 'DELETE' }); pubSel = null; await loadPubQueue(); if (pubQueue[0]) pubSel = pubQueue[0].id; renderPubList(); renderPubEditor(); };
 }
 function collectPubItem(it) {
-  it.target = (document.querySelector('input[name="pf-target"]:checked') || {}).value || it.target || 'stage';
+  it.target = (document.querySelector('input[name="pf-target"]:checked') || {}).value || it.target || 'prod';
   it.domain = (document.querySelector('input[name="pf-domain"]:checked') || {}).value || it.domain;
   it.publisherShowroom = $('#pf-showroom').value.trim();
   it.content = it.content || {}; it.content.title = $('#pf-title').value.trim(); it.content.body = $('#pf-body').value;
@@ -1130,7 +1130,7 @@ async function runPublish(it) {
   if (!it.displayPeriod.unlimited && !it.displayPeriod.end) return alert('전시 종료일시를 입력하거나 무기한을 선택하세요.');
   if (!(it.items || []).length) return alert('노출할 상품/쇼룸 아이템이 없습니다.');
   // 발행 환경 점검 (대상: stage/prod)
-  const target = it.target || 'stage';
+  const target = it.target || 'prod';
   const envKo = target === 'prod' ? '프로덕션(실서버)' : '스테이지(테스트)';
   const loginCmd = 'node publish-login.js' + (target === 'prod' ? ' prod' : '');
   let office = {}; try { office = await api('/api/publish/office-status?target=' + target); } catch {}

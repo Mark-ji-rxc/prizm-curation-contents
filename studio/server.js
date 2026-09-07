@@ -301,7 +301,7 @@ function buildPublishDraft() {
     images: state.confirmedImages || [], matches: state.matches || {},
     items, filterKeywords: [], displayOrder: null, displayVisible: true,
     displayPeriod: { start: '', end: dpEnd, unlimited: dpUnlimited }, status: 'draft',
-    target: 'stage', // 발행 대상 환경: 'stage'(기본) | 'prod' — 등록 단계에서 선택
+    target: 'prod', // 발행 대상 환경: 'prod'(기본) | 'stage' — 등록 단계에서 선택
   };
 }
 // ── 노션 리스트업(발행 대기목록 → 노션 DB 검토용) ──────────────────────────────
