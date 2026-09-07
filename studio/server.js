@@ -469,7 +469,7 @@ const CONTENT_RULES = {
   구조: '제목 + 본문',
   제목: '공백 포함 8~16자. 짧고 임팩트, 큐레이션 성격이 드러나되 노골적이지 않게.',
   본문: '공백 포함 100~300자. 무엇이 좋은지 + 왜 이렇게 묶었는지를 고객 상황에서 와닿게.',
-  톤: '친근한 반말 표현 + 존댓말 마무리를 섞은 하우스 보이스. 어미·문장 시작·길이 변주(기계적 반복 금지).',
+  톤: '친근한 하우스 보이스. ★ 한 콘텐츠 안에서는 반말 또는 존댓말 하나로 일관(섞지 말 것). 어미·문장 시작·길이 변주(기계적 반복 금지).',
   본문형: ['①후기·고백형', '②장면·몰입형', '③반전·통념깨기형', '④팁·정보형', '⑤단정·선언형', '⑥조건·타깃지목형', '⑦질문·대화형', '⑧비교·대조형', '⑨숫자·근거형', '⑩큐레이터편지형'],
   상품매칭: '각 콘텐츠는 주제 조건에 맞는 판매중 상품 "전체"를 매칭한다(대표 1~2개만 X). 호텔명 — 상품명 형식. 판매예정/매진 표기.',
   주의: '실제 상품이 존재하는 주제만. 여행지 소개는 사실확인 후 출처 표기.',
@@ -691,6 +691,7 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
   // 사실 근거 + 추측 표기 규칙(모든 생성 모드 공통): 데이터에 없는 구체정보는 검색으로 확인, 못 하면 추측 처리
   const factRule = '★ 사실 근거·추측 표기(중요): 숙소의 전망(오션뷰 등)·객실 시설(스파/풀 등)·위치 근접성("~에 가깝다","시내와 가까움") 같은 구체 사실은 products 데이터(상품명·benefits/flags)에 있는 것만 단정한다. 데이터에 없으면 반드시 인터넷 검색(WebSearch)으로 확인 — 확인되면 단정, 확인 안 되면 그 문장은 추측 어투("~인 듯","~라고 해요","아마")로 쓰고 그 문장 "원문 그대로"를 output.speculative 배열에 담는다. 검색 자체를 못 하는 상황이면 불확실한 구체정보는 아예 쓰지 말 것. 근거 없는 허위·과장 금지.';
   const specFmt = ', "speculative": ["(추측성으로 쓴 문장 원문, 없으면 생략/빈배열)"]';
+  const toneRule = '★ 어투 일관성: 한 콘텐츠(본문) 안에서는 반말 또는 존댓말 중 하나로만 끝까지 일관되게 쓴다(한 편 안에서 둘을 섞지 말 것). 어느 쪽으로 쓸지는 주제·화자·타깃에 맞게 고르되, 그 편은 처음부터 끝까지 같은 어투로 통일.';
   // 본문 글자수 범위(조정 가능). 기본 100~300자. 값이 오면 20~2000자로 클램프하고 min<max 보장.
   let bMin = Math.round(Number(bodyMin)) || 100, bMax = Math.round(Number(bodyMax)) || 300;
   bMin = Math.min(Math.max(bMin, 20), 2000); bMax = Math.min(Math.max(bMax, 20), 2000);
@@ -704,6 +705,12 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
   const items = pickProducts({ scope, region, condition: cond, until, productCodes, productTypes });
   // 지역 기반 콘텐츠: 대상 지역 후보(선택 지역 1개 또는 해당 구분의 전체 지역 목록)
   const regionCands = regionMode ? (region ? [region] : regionList(scope).map((r) => r.region)) : null;
+  // 지역/축제 콘텐츠도 그 지역 상품을 matched로 붙이도록, 대상 지역 상품 풀 제공
+  let regionProducts = [];
+  if (regionMode) {
+    const pool = applyCondition(crawl.normalizedItems(scope), 'selling');
+    regionProducts = region ? pool.filter((r) => (scope === 'overseas' ? overseasRegion(r) === region : r.region === region)) : pool;
+  }
   // 지역 축제(옵션): 검색시점부터 4개월 이내, 소도시 포함
   const useFestival = !!(regionMode && festival);
   let festivalLine = '';
@@ -741,7 +748,8 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       `0) products 범위: ${scopeDesc}. 매칭은 이 목록 안에서.`,
       '1) input.brief 를 해석해 핵심 컨셉·후킹 포인트를 잡는다. 브리프에 담긴 스토리(현지 유래·명물·계절·식감 등)를 그대로 살린다.',
       webLine || '※ 사실·수치·현지 이야기는 정확히. 모르면 단정하지 말 것.',
-      `2) input.count 개의 콘텐츠를 하우스 보이스(친근한 반말+존댓말 마무리)로 쓴다: 제목 8~16자(임팩트·호기심), 본문 ${bodyRule}(구체적·생생·구매 동기). 브리프의 결을 살려 "그곳에 가고/사고 싶게".`,
+      `2) input.count 개의 콘텐츠를 친근한 하우스 보이스로 쓴다: 제목 8~16자(임팩트·호기심), 본문 ${bodyRule}(구체적·생생·구매 동기). 브리프의 결을 살려 "그곳에 가고/사고 싶게".`,
+      toneRule,
       bodyLenNote,
       '3) 각 콘텐츠에 titleAlternatives(제목 다른 후보 2~4개, 각 후보에 한 줄 근거)를 포함한다.',
       '4) 브리프·여행지에 맞는 products 를 matched 에(관련 상품만, productId·productCode 둘 다). hotels(중복 제거)도 채운다. input.persona 있으면 화자로, form 은 어울리는 형으로.',
@@ -757,19 +765,23 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       ? `대상 지역: ${regionCands[0]} (${scopeKo}).`
       : `대상 지역 후보(${scopeKo}): ${regionCands.join(', ')}. 이 중에서 고른다.`;
     instructions = [
-      '이 요청은 "지역 기반 콘텐츠 생성"입니다. 특정 상품·숙소가 아니라 지역/여행지 그 자체를 주제로, 상품 언급 없이 콘텐츠를 만들어 이 파일을 덮어써 저장하세요.',
+      '이 요청은 "지역 기반 콘텐츠 생성"입니다. 특정 상품이 아니라 지역/여행지 그 자체를 주제로 콘텐츠를 쓰되, 생성 후 그 지역에 맞는 상품을 matched에 연결해 이 파일을 덮어써 저장하세요. (본문은 지역 중심, matched 상품은 등록 단계 노출용)',
       '0) ' + regionsLine,
       '★ 인터넷 검색 필수(WebSearch): 각 지역의 최신·사실 정보를 검색으로 확인해 근거 있게 쓴다. 소재 예 — 그 지역의 특산물·명물·먹거리, 지역의 매력·장점, 지금(계절·이벤트·제철) 가야 하는 이유, 요즘 트렌디한 것(핫플·경험·현지 분위기). 추측·부정확·과장 금지, 신뢰할 출처만.',
       festivalLine,
       `1) input.count 개의 콘텐츠를 만든다. ${useFestival ? '각 콘텐츠는 위 4개월 이내 축제를 중심 소재로(소도시 축제 포함), ' : ''}${regionCands.length === 1 ? '같은 지역을 서로 다른 각도(특산물/장점/가야 할 이유/요즘 트렌드' + (useFestival ? '/축제' : '') + ' 등)로 다양하게, 겹치지 않게.' : '가능한 서로 다른 지역으로, 각 지역의 개성을 살려 겹치지 않게.'}`,
-      '2) ★★ 절대 규칙: 상품/숙소/호텔/패키지/객실/가격/할인/예약을 일절 언급하지 않는다. matched 는 반드시 빈 배열 []. 판매·구매 유도 금지 — 지역의 매력과 정보 전달에만 집중.',
-      `3) 제목 8~16자, 본문 ${bodyRule}, 하우스 보이스(친근한 반말+존댓말 마무리). 지역명을 자연스럽게 녹이고, 읽는 사람이 "그 지역에 가보고 싶다"는 마음이 들도록 구체적·생생하게. 상투구·일반론 금지.`,
+      '2) 본문 원칙: 본문은 지역/축제의 매력·정보에 집중하고, 상품을 나열·광고하거나 가격·할인·예약 문구를 본문에 넣지 않는다(상품은 본문이 아니라 matched로만 연결).',
+      `3) 제목 8~16자, 본문 ${bodyRule}, 친근한 하우스 보이스. 지역명을 자연스럽게 녹이고, 읽는 사람이 "그 지역에 가보고 싶다"는 마음이 들도록 구체적·생생하게. 상투구·일반론 금지.`,
+      toneRule,
       bodyLenNote,
       factRule,
+      '★ 상품 매칭(중요): products(대상 지역의 판매 상품 목록)에서 이 콘텐츠의 지역'
+        + (useFestival ? '(축제면 축제 개최지·인근 소도시)' : '')
+        + '과 지리적으로 맞는 상품을 matched에 최대한 담는다. 관련도 높은 순으로 여러 개 가능, 지역/위치가 안 맞으면 억지로 넣지 말 것. 각 상품 productId(숫자)·productCode(영문) 그대로 복사하고 hotels에 매칭 호텔/여행지도 추가. 정말 맞는 상품이 없으면 matched 빈 배열 허용.',
       '4) 각 콘텐츠에 titleAlternatives(제목 후보 2~4개, 한 줄 근거) 포함. input.persona 있으면 화자로, input.forms 있으면 어울리는 형으로.',
       insLine,
       '5) 완료 시 status "done", output.items 는 정확히 input.count 개.',
-      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "④팁·정보형", "persona": "", "region": "(대상 지역명)", "titleAlternatives": [ {"title":"...","reason":"..."} ], "hotels": ["(대상 지역명)"], "matched": []' + specFmt + ' } ] }',
+      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "④팁·정보형", "persona": "", "region": "(대상 지역명)", "titleAlternatives": [ {"title":"...","reason":"..."} ], "hotels": ["(대상 지역명)", "(매칭 호텔들)"], "matched": [ {"productId":"99500","productCode":"2gx2yiq8","hotel":"...","productName":"...","price":123000,"url":"https://...","status":"판매중"} ]' + specFmt + ' } ] }',
     ].filter(Boolean).join('\n');
   } else {
     instructions = [
@@ -785,7 +797,8 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       '  b) 본문 형은 "톤 가이드"일 뿐 템플릿이 아니다. 형은 지키되 문장·전개는 자유롭게.',
       '  c) 숙소/여행지/상품의 "구체적 실체"에 근거해 쓴다: 그 호텔만의 특징(뷰·위치·객실·다이닝·시설·특전), 그 여행지의 매력(명물·풍경·계절·분위기), 상품의 실제 혜택(products[].flags/benefits/name). 일반론·상투구·모호한 미사여구 금지.',
       '  d) 읽는 사람이 "그 숙소·여행지를 둘러보고 싶다 / 사고 싶다"는 마음이 들도록 호기심과 구체성, 구매 동기(가성비·희소성·경험·타깃 적합성)를 자연스럽게 녹인다.',
-      `5) 각 콘텐츠: 제목 8~16자, 본문 ${bodyRule}, 하우스 보이스, 기계적 반복 금지. item.form 에 실제 사용한 형을 적는다. input.persona 있으면 화자로 반영.`,
+      `5) 각 콘텐츠: 제목 8~16자, 본문 ${bodyRule}, 친근한 하우스 보이스, 기계적 반복 금지. item.form 에 실제 사용한 형을 적는다. input.persona 있으면 화자로 반영.`,
+      toneRule,
       bodyLenNote,
       '6) 각 콘텐츠에 matched(productId·productCode 둘 다)와 hotels(중복 제거) 채운다. 여행지/명물은 사실확인 후 필요시 web 검색.',
       '7) 완료 시 status "done", output.items 는 정확히 count×perTopic 개.',
@@ -797,13 +810,13 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
     ].filter(Boolean).join('\n');
   }
   const rulesForJob = { ...CONTENT_RULES, 본문: `${bodyRule}. 무엇이 좋은지 + 왜 이렇게 묶었는지를 고객 상황에서 와닿게. (스튜디오에서 지정한 본문 길이)` };
-  if (regionMode) { rulesForJob.상품매칭 = '지역 기반 콘텐츠 — 상품 매칭 없음. matched 는 반드시 빈 배열 [].'; rulesForJob.주의 = '상품/숙소/호텔/가격/예약 언급 금지. 지역 정보(특산물·명물·장점·가야 할 이유·요즘 트렌드)는 인터넷 검색으로 사실 확인.'; }
+  if (regionMode) { rulesForJob.상품매칭 = '지역 콘텐츠 — 본문은 지역 중심(상품 나열·광고 금지)이되, matched에는 그 지역과 맞는 판매상품을 최대한 연결(등록 노출용). 억지 매칭 금지, 없으면 빈 배열.'; rulesForJob.주의 = '본문에 가격·할인·예약 문구 금지. 지역 정보(특산물·명물·장점·가야 할 이유·요즘 트렌드)는 인터넷 검색으로 사실 확인.'; }
   return jobs.createJob('content', {
     input: { mode: mode || 'generate', topic: topic || '', count: mode === 'match' ? 1 : (Number(count) || (mode === 'brief' ? 1 : 3)), perTopic: (mode === 'match' || mode === 'brief' || regionMode) ? 1 : per, forms: formList, scope, region: region || '', persona: persona || '', condition: cond, until: until || '', productCodes: productCodes || [], productTypes: productTypes || [], model: model === 'sonnet' ? 'sonnet' : 'opus', webSearch: web, bodyMin: bMin, bodyMax: bMax, regionMode: !!regionMode, regions: regionCands || [], festival: !!useFestival, brief: mode === 'brief' ? (brief || '') : '', userContent: mode === 'match' ? { title: userTitle || '', body: userBody || '' } : null },
     rules: rulesForJob,
     referenceExamples: references,
     productCount: regionMode ? Math.max(1, (regionCands || []).length) : items.length,
-    products: regionMode ? [] : compactForJob(items),
+    products: regionMode ? compactForJob(regionProducts) : compactForJob(items),
     instructions,
     output: null,
   });
