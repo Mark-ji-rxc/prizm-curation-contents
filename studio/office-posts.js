@@ -50,6 +50,17 @@ async function fetchOfficePosts(env) {
 
 // 로그인 세션(JWT) 만료 정보 — 네트워크 없이 로컬 토큰만 디코드. 만료 임박 경고용.
 function decodeExp(token) { try { const p = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString()); return p.exp ? p.exp * 1000 : null; } catch { return null; } }
+// 발행 주체용 프로필 목록. GET {apiBase}/manager/discover/post/profile → [{id, nickname, ...}]
+async function fetchProfiles(env) {
+  const off = CFG.envConfig(env);
+  const token = readToken(off);
+  const r = await fetch(off.apiBase + '/manager/discover/post/profile', { headers: { authorization: token, accept: 'application/json' } });
+  if (r.status === 401 || r.status === 403) throw new Error(`${off.env === 'prod' ? '프로덕션' : '스테이지'} 세션 만료/권한 없음 — 다시 로그인하세요.`);
+  if (!r.ok) throw new Error('프로필 조회 실패 HTTP ' + r.status);
+  const j = await r.json();
+  const arr = Array.isArray(j) ? j : (j.content || j.data || []);
+  return arr.map((p) => ({ id: p.id, nickname: p.nickname || p.name || '' })).filter((p) => p.nickname);
+}
 function sessionInfo(env) {
   const off = CFG.envConfig(env);
   try {
@@ -59,4 +70,4 @@ function sessionInfo(env) {
   } catch (e) { return { exists: false, env: off.env, error: e.message }; }
 }
 
-module.exports = { fetchOfficePosts, sessionInfo };
+module.exports = { fetchOfficePosts, sessionInfo, fetchProfiles };

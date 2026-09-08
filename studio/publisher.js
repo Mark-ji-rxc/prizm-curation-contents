@@ -33,16 +33,35 @@ async function publishItem(item, stagedFiles, customImages) {
     await page.locator(`input[type=radio][value="${domVal}"]`).check({ timeout: 8000 });
     step('발행 도메인: ' + item.domain);
 
-    // 2) 발행 주체(쇼룸) — 자동완성 정확 선택
-    if (item.publisherShowroom) {
+    // 2) 발행 주체 — 종류(쇼룸/프로필/리뷰)를 "제목·내용보다 먼저" 선택(변경 시 내용이 초기화되므로).
+    const ptype = item.publisherType || 'showroom';
+    const PT_LABEL = { showroom: '쇼룸', profile: '프로필', review: '리뷰' };
+    if (ptype !== 'showroom') { // 기본은 쇼룸(이미 선택). 프로필/리뷰면 토글 전환 + 확인 모달
+      const grp = page.getByRole('group', { name: '발행 주체' });
+      await grp.getByRole('button', { name: PT_LABEL[ptype], exact: true }).click().catch(() => {});
+      await page.waitForTimeout(700);
+      const dlg = page.getByRole('dialog').filter({ hasText: '초기화' });
+      if (await dlg.count()) { await dlg.getByRole('button', { name: '확인' }).first().click().catch(() => {}); await page.waitForTimeout(800); }
+      step('발행 주체 종류: ' + PT_LABEL[ptype]);
+    }
+    if (ptype === 'profile') {
+      const nick = (item.publisherProfile && item.publisherProfile.nickname) || '';
+      if (!nick) throw new Error('프로필이 선택되지 않았습니다. 발행 주체(프로필)를 골라주세요.');
+      const pin = page.getByPlaceholder('프로필 검색').first();
+      await pin.click(); await pin.fill(nick);
+      await page.waitForTimeout(900);
+      const opt = page.getByRole('option').filter({ hasText: nick }).first();
+      if (!(await opt.count())) throw new Error('프로필 "' + nick + '"을(를) 백오피스에서 찾지 못했습니다. 프로필 업데이트 후 다시 시도하세요.');
+      await opt.click(); await page.waitForTimeout(400);
+      step('발행 주체(프로필): ' + nick);
+    } else if (ptype === 'showroom' && item.publisherShowroom) {
       const sr = page.getByPlaceholder('쇼룸 검색').first();
       await sr.click(); await sr.fill(item.publisherShowroom);
       await page.waitForTimeout(800);
-      // "21293 체크인" 형태 옵션 중 이름이 정확히 일치하는 것
       const opt = page.getByRole('option').filter({ hasText: new RegExp('\\d+\\s+' + escapeRe(item.publisherShowroom) + '$') }).first();
       if (await opt.count()) await opt.click();
       else await page.getByRole('option').filter({ hasText: item.publisherShowroom }).first().click({ timeout: 5000 });
-      step('발행 주체: ' + item.publisherShowroom);
+      step('발행 주체(쇼룸): ' + item.publisherShowroom);
     }
 
     // 3) 제목 / 내용

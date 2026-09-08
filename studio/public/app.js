@@ -1101,7 +1101,10 @@ function renderPubEditor() {
       ${['stage', 'prod'].map((t) => `<label class="${t === 'prod' ? 'tgt-prod' : 'tgt-stage'}"><input type="radio" name="pf-target" value="${t}" ${(it.target || 'prod') === t ? 'checked' : ''}/> ${t === 'prod' ? '프로덕션(실서버)' : '스테이지(테스트)'}</label>`).join('')}</div></div>
     <div class="pf-row"><label>발행 도메인</label><div class="pf-radios">
       ${['common', 'domestic', 'overseas'].map((d) => `<label><input type="radio" name="pf-domain" value="${d}" ${it.domain === d ? 'checked' : ''}/> ${DOMAIN_LABEL[d]}</label>`).join('')}</div></div>
-    <div class="pf-row"><label>발행 주체(쇼룸)</label><input class="input" id="pf-showroom" value="${esc(it.publisherShowroom || '')}" placeholder="국내=체크인 / 해외=인트립 / 공통=직접 입력" /></div>
+    <div class="pf-row"><label>발행 주체</label><div class="pf-radios">
+      ${['showroom', 'profile', 'review'].map((t) => `<label><input type="radio" name="pf-ptype" value="${t}" ${(it.publisherType || 'showroom') === t ? 'checked' : ''}/> ${{ showroom: '쇼룸', profile: '프로필', review: '리뷰' }[t]}</label>`).join('')}</div></div>
+    <div class="pf-row" id="pf-showroom-row"><label>쇼룸명</label><input class="input" id="pf-showroom" value="${esc(it.publisherShowroom || '')}" placeholder="국내=체크인 / 해외=인트립 / 공통=직접 입력" /></div>
+    <div class="pf-row" id="pf-profile-row"><label>프로필</label><span class="row gap"><select class="input" id="pf-profile"></select><button class="btn sm" id="pf-profile-refresh" type="button">프로필 업데이트</button></span></div>
     <div class="pf-row"><label>제목 <span class="muted sm">(≤24)</span></label><input class="input" id="pf-title" maxlength="24" value="${esc(c.title || '')}" /><span class="muted sm" id="pf-title-c">${(c.title || '').length}/24</span></div>
     <div class="pf-row"><label>내용</label><textarea class="input" id="pf-body" rows="4">${esc(c.body || '')}</textarea></div>
     <div class="pf-row"><label>미디어</label><div><span class="badge">${MEDIA_LABEL[it.mediaMode] || it.mediaMode}</span> <span class="muted sm">${isOff ? '이미지 없이 상품/쇼룸만' : '이미지 ' + ((it.images || []).length) + '장'}</span></div></div>
@@ -1135,14 +1138,40 @@ function wirePubEditor(it) {
   const gen = $('#pf-gen-desc'); if (gen) gen.onclick = () => genDescriptions(it);
   renderKw(it);
   const kwIn = $('#pf-kw-input'); if (kwIn) kwIn.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); const v = kwIn.value.trim(); if (v) { it.filterKeywords = it.filterKeywords || []; it.filterKeywords.push({ name: v, isNew: $('#pf-kw-new').checked }); kwIn.value = ''; renderKw(it); } } };
+  // 발행 주체 종류(쇼룸/프로필/리뷰) 토글 + 프로필 드롭다운
+  const applyPtype = () => {
+    const t = (document.querySelector('input[name="pf-ptype"]:checked') || {}).value || 'showroom';
+    const sr = $('#pf-showroom-row'), pr = $('#pf-profile-row');
+    if (sr) sr.classList.toggle('hidden', t !== 'showroom');
+    if (pr) pr.classList.toggle('hidden', t !== 'profile');
+    if (t === 'profile') loadProfiles(it);
+  };
+  $$('input[name="pf-ptype"]').forEach((r) => r.onchange = applyPtype);
+  applyPtype();
+  const pr = $('#pf-profile-refresh'); if (pr) pr.onclick = () => loadProfiles(it, true);
   $('#pf-save').onclick = () => savePubItem(it);
   $('#pf-publish').onclick = () => runPublish(it);
   $('#pf-del').onclick = async () => { if (!confirm('대기목록에서 삭제할까요?')) return; await api('/api/publish/queue?id=' + encodeURIComponent(it.id), { method: 'DELETE' }); pubSel = null; await loadPubQueue(); if (pubQueue[0]) pubSel = pubQueue[0].id; renderPubList(); renderPubEditor(); };
 }
+// 발행 주체 프로필 드롭다운 로드(대상 환경 기준). force=true면 백오피스에서 갱신("프로필 업데이트")
+async function loadProfiles(it, force) {
+  const sel = $('#pf-profile'); if (!sel) return;
+  const target = (document.querySelector('input[name="pf-target"]:checked') || {}).value || it.target || 'prod';
+  sel.innerHTML = '<option value="">불러오는 중…</option>';
+  try {
+    const { profiles } = await api('/api/office/profiles?target=' + target + (force ? '&force=1' : ''));
+    const cur = it.publisherProfile && it.publisherProfile.id;
+    sel.innerHTML = '<option value="">— 프로필 선택 —</option>' + (profiles || []).map((p) => `<option value="${p.id}" data-nick="${esc(p.nickname)}" ${String(cur) === String(p.id) ? 'selected' : ''}>${esc(p.nickname)}</option>`).join('');
+    if (force) alert('프로필 ' + (profiles || []).length + '개를 불러왔어요.');
+  } catch (e) { sel.innerHTML = '<option value="">불러오기 실패 — 세션 확인</option>'; if (force) alert('프로필 불러오기 실패: ' + e.message); }
+}
 function collectPubItem(it) {
   it.target = (document.querySelector('input[name="pf-target"]:checked') || {}).value || it.target || 'prod';
   it.domain = (document.querySelector('input[name="pf-domain"]:checked') || {}).value || it.domain;
+  it.publisherType = (document.querySelector('input[name="pf-ptype"]:checked') || {}).value || it.publisherType || 'showroom';
   it.publisherShowroom = $('#pf-showroom').value.trim();
+  const psel = $('#pf-profile'); const popt = psel && psel.selectedOptions[0];
+  it.publisherProfile = (it.publisherType === 'profile' && popt && popt.value) ? { id: Number(popt.value), nickname: popt.dataset.nick || popt.textContent } : (it.publisherType === 'profile' ? it.publisherProfile : null);
   it.content = it.content || {}; it.content.title = $('#pf-title').value.trim(); it.content.body = $('#pf-body').value;
   it.items = collectItems(it);
   it.displayOrder = $('#pf-order').value === '' ? null : Number($('#pf-order').value);
@@ -1153,7 +1182,8 @@ function collectPubItem(it) {
 async function savePubItem(it) {
   collectPubItem(it);
   if (!it.content.title && !it.content.body) return alert('제목 또는 내용 중 1개는 필요합니다.');
-  if (!it.publisherShowroom) return alert('발행 주체(쇼룸)를 입력하세요.');
+  if (it.publisherType === 'profile') { if (!(it.publisherProfile && it.publisherProfile.id)) return alert('발행 주체(프로필)를 선택하세요. 목록이 비어 있으면 [프로필 업데이트]를 눌러주세요.'); }
+  else if (it.publisherType !== 'review') { if (!it.publisherShowroom) return alert('발행 주체(쇼룸)를 입력하세요.'); }
   if (!it.displayPeriod.start) return alert('전시 시작일시는 필수입니다.');
   if (!it.displayPeriod.unlimited && !it.displayPeriod.end) return alert('전시 종료일시를 입력하거나 무기한을 선택하세요.');
   try { await api('/api/publish/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ item: it }) }); await loadPubQueue(); renderPubList(); alert('저장했습니다.'); } catch (e) { alert('저장 실패: ' + e.message); }
@@ -1162,7 +1192,8 @@ async function savePubItem(it) {
 async function runPublish(it) {
   collectPubItem(it);
   if (!it.content.title && !it.content.body) return alert('제목 또는 내용 중 1개는 필요합니다.');
-  if (!it.publisherShowroom) return alert('발행 주체(쇼룸)를 입력하세요.');
+  if (it.publisherType === 'profile') { if (!(it.publisherProfile && it.publisherProfile.id)) return alert('발행 주체(프로필)를 선택하세요. 목록이 비어 있으면 [프로필 업데이트]를 눌러주세요.'); }
+  else if (it.publisherType !== 'review') { if (!it.publisherShowroom) return alert('발행 주체(쇼룸)를 입력하세요.'); }
   if (!it.displayPeriod.start) return alert('전시 시작일시는 필수입니다.');
   if (!it.displayPeriod.unlimited && !it.displayPeriod.end) return alert('전시 종료일시를 입력하거나 무기한을 선택하세요.');
   if (!(it.items || []).length) return alert('노출할 상품/쇼룸 아이템이 없습니다.');

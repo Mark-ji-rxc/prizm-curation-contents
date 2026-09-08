@@ -225,6 +225,7 @@ function saveState(s) {
 let state = loadState();
 let officePostsCache = {}; // 백오피스 게시글 목록 캐시(캘린더용) — 환경별 {stage:{at,posts}, prod:{...}}
 let officeLoginJobs = {}; // 환경별 로그인 진행상태 {stage:{status,error}, prod:{...}}
+let officeProfilesCache = {}; // 환경별 발행주체 프로필 목록 캐시
 // 버튼 한 번으로 로그인: 헤드풀 브라우저를 띄우고 로그인 완료(localStorage 토큰 갱신)를 폴링해 세션 자동 저장
 function startOfficeLogin(env) {
   env = env === 'prod' ? 'prod' : 'stage';
@@ -302,6 +303,8 @@ function buildPublishDraft() {
     items, filterKeywords: [], displayOrder: null, displayVisible: true,
     displayPeriod: { start: '', end: dpEnd, unlimited: dpUnlimited }, status: 'draft',
     target: 'prod', // 발행 대상 환경: 'prod'(기본) | 'stage' — 등록 단계에서 선택
+    publisherType: 'showroom', // 발행 주체 종류: 'showroom'(기본) | 'profile' | 'review'
+    publisherProfile: null, // 프로필 선택 시 { id, nickname }
   };
 }
 // ── 노션 리스트업(발행 대기목록 → 노션 DB 검토용) ──────────────────────────────
@@ -1358,6 +1361,14 @@ const server = http.createServer(async (req, res) => {
     // 버튼 한 번으로 로그인: 브라우저 띄우고 로그인 완료를 자동 감지·세션 저장. target=stage|prod
     if (p === '/api/publish/login' && req.method === 'POST') { const j = startOfficeLogin(q.get('target')); return sendJson(res, 200, { status: j.status }); }
     if (p === '/api/publish/login/status' && req.method === 'GET') { const env = q.get('target') === 'prod' ? 'prod' : 'stage'; return sendJson(res, 200, officeLoginJobs[env] || { status: 'idle' }); }
+    // 발행 주체 프로필 목록(환경별 캐시, force=1이면 갱신 — "프로필 업데이트")
+    if (p === '/api/office/profiles' && req.method === 'GET') {
+      const env = q.get('target') === 'prod' ? 'prod' : 'stage';
+      const now = Date.now(); const c = officeProfilesCache[env];
+      if (q.get('force') !== '1' && c && (now - c.at) < 60000) return sendJson(res, 200, { profiles: c.profiles, cached: true, env });
+      try { const profiles = await require('./office-posts').fetchProfiles(env); officeProfilesCache[env] = { at: now, profiles }; return sendJson(res, 200, { profiles, cached: false, env }); }
+      catch (e) { return sendErr(res, 502, e.message); }
+    }
     // 발행 대기목록 → 노션 리스트업(검토용). Claude(MCP)가 job 처리
     if (p === '/api/publish/notion-export' && req.method === 'POST') {
       const job = buildNotionExportJob();
