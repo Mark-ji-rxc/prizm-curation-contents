@@ -26,20 +26,31 @@
       <div class="gprice">${m.discount ? esc(m.discount) + '% ' : ''}${won(m.price)}</div></div></div>`;
   }
 
+  // 순서변경/삭제 컨트롤(◀ ▶ ✕) — data-scope로 이미지/상품 구분
+  function ctl(scope, i, n) {
+    return `<div class="pv-ctl" data-scope="${scope}" data-i="${i}">
+      <button type="button" data-act="left" title="앞으로" ${i === 0 ? 'disabled' : ''}>◀</button>
+      <button type="button" data-act="right" title="뒤로" ${i >= n - 1 ? 'disabled' : ''}>▶</button>
+      <button type="button" data-act="del" class="del" title="삭제">✕</button>
+    </div>`;
+  }
+
   function buildHtml(content, images, products, matches) {
     const H = head(content);
-    // ① 이미지 + 상품 등록 — 이미지 3:4, 좌우 스와이프(전체 노출)
+    // ① 이미지 + 상품 등록 — 이미지 3:4, 좌우 스와이프(전체 노출). 이미지 순서변경/삭제 가능.
     const media = images.length
-      ? images.map((im) => `<div class="ph"><img src="${thumb(im.nasPath)}" alt="" /></div>`).join('')
+      ? images.map((im, i) => `<div class="ph">${ctl('img', i, images.length)}<img src="${thumb(im.nasPath)}" alt="" /></div>`).join('')
       : '<div class="ph empty"></div>';
     const card1 = `<div class="pv-wrap"><div class="pv-title">① 이미지 + 상품/쇼룸 등록 · 3:4 · 이미지 ${images.length}장(좌우 스와이프)</div>
       <div class="feed">${H}<div class="media portrait">${media}</div>${goodsChip(products[0])}</div></div>`;
 
-    // ② 이미지 없이 상품만 등록 — 상품 캐러셀
-    const gcards = (products.length ? products : [{}]).map((m) => `<div class="gcard">
+    // ② 이미지 없이 상품만 등록 — 상품 캐러셀. 상품 순서변경/삭제 가능.
+    const gcards = products.length
+      ? products.map((m, i) => `<div class="gcard">${ctl('item', i, products.length)}
         <div class="gimg"></div>
         <div class="gbody"><div class="ghotel">${esc(m.hotel || '')}</div><div class="gname">${esc(m.productName || m.name || '상품')}</div>
-        <div class="gprice">${m.discount ? esc(m.discount) + '% ' : ''}${won(m.price)}</div></div></div>`).join('');
+        <div class="gprice">${m.discount ? esc(m.discount) + '% ' : ''}${won(m.price)}</div></div></div>`).join('')
+      : '<div class="gcard"><div class="gimg"></div><div class="gbody"><div class="gname">상품/쇼룸이 없어요.</div></div></div>';
     const card2 = `<div class="pv-wrap"><div class="pv-title">② 이미지 없이 상품/쇼룸만 등록 · 상품/쇼룸 ${products.length}개</div>
       <div class="feed">${H}<div class="gcarousel">${gcards}</div></div></div>`;
 
@@ -62,13 +73,28 @@
     return card1 + card2 + card3;
   }
 
-  function renderPrizmPreviews(root, content, images, products, matches, onChange) {
+  function renderPrizmPreviews(root, content, images, products, matches, onChange, opts) {
     if (!content) { root.innerHTML = '<div class="muted">먼저 콘텐츠를 선택하고 이미지를 컨펌하세요.</div>'; return; }
+    opts = opts || {};
     images = images || [];
     products = (products && products.length) ? products : (content.matched || []);
     matches = Object.assign({}, matches || {});
     // 매칭이 없는 상품은 순서대로 이미지 자동 배정(product i ↔ image i)
     products.forEach((m, i) => { const k = keyOf(m); if (!matches[k] && images.length) matches[k] = images[i % images.length].nasPath; });
+
+    const move = (arr, i, dir) => { const j = i + dir; if (j < 0 || j >= arr.length) return; const t = arr[i]; arr[i] = arr[j]; arr[j] = t; };
+    // ◀ ▶ ✕ 컨트롤 처리 — 이미지(state.confirmedImages)/상품(state.selectedProducts·쇼룸) 순서·삭제를 상태에 반영
+    const onCtl = (btn) => {
+      const box = btn.closest('.pv-ctl'); if (!box) return;
+      const scope = box.dataset.scope, i = +box.dataset.i, act = btn.dataset.act;
+      const arr = scope === 'img' ? images : products;
+      if (act === 'del') arr.splice(i, 1);
+      else if (act === 'left') move(arr, i, -1);
+      else if (act === 'right') move(arr, i, 1);
+      if (scope === 'img') { if (opts.onImages) opts.onImages(images.slice()); }
+      else { if (opts.onItems) opts.onItems(products.map(keyOf)); }
+      draw();
+    };
 
     const draw = () => {
       root.innerHTML = buildHtml(content, images, products, matches);
@@ -81,6 +107,7 @@
         if (onChange) onChange(Object.assign({}, matches));
         draw();
       });
+      root.querySelectorAll('.pv-ctl button').forEach((btn) => btn.onclick = () => onCtl(btn));
     };
     draw();
     if (onChange) onChange(Object.assign({}, matches)); // 자동 배정 결과 저장

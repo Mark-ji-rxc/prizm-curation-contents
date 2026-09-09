@@ -940,7 +940,11 @@ function renderGallery() {
   }).join('') || '<div class="muted">이미지가 없습니다.</div>';
   $$('#gallery .tile').forEach((t) => {
     t.onclick = () => { const path = t.dataset.path; if (selectedTiles.has(path)) selectedTiles.delete(path); else selectedTiles.set(path, allImages().find((im) => im.path === path)); t.classList.toggle('sel'); renderSelectedStrip(); };
-    t.querySelector('img').ondblclick = (e) => { e.stopPropagation(); openLightbox(t.dataset.path); };
+    const img = t.querySelector('img');
+    img.ondblclick = (e) => { e.stopPropagation(); openLightbox(t.dataset.path); };
+    // 실제 비율로 가로형/세로형 판별 — 세로형은 좌우 여백(contain), 가로형은 꽉 채움(cover)
+    const classify = () => { if (img.naturalWidth && img.naturalHeight) t.classList.toggle('portrait', img.naturalHeight > img.naturalWidth); };
+    if (img.complete) classify(); else img.addEventListener('load', classify, { once: true });
   });
   renderSelectedStrip();
 }
@@ -1036,10 +1040,19 @@ let confirmedImageCount = 0; // ⑤ 발행 형태 검증용(①/③은 이미지
 async function renderPreviews() {
   const d = await api('/api/preview');
   confirmedImageCount = (d.images || []).length;
-  window.renderPrizmPreviews($('#previewArea'), d.content, d.images, d.products, d.matches || {}, saveMatches);
+  window.renderPrizmPreviews($('#previewArea'), d.content, d.images, d.products, d.matches || {}, saveMatches, { onImages: saveImageOrder, onItems: saveItemOrder });
 }
 async function saveMatches(matches) {
   try { await api('/api/content/matches', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ matches }) }); } catch {}
+}
+// 미리보기 ① 이미지 순서변경/삭제 → confirmedImages 갱신(발행 시 이 순서대로 업로드)
+async function saveImageOrder(images) {
+  confirmedImageCount = images.length;
+  try { await api('/api/images/confirm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ images }) }); } catch {}
+}
+// 미리보기 ② 상품 순서변경/삭제 → selectedProducts(또는 쇼룸) 갱신(발행 시 이 순서대로 조회·추가)
+async function saveItemOrder(keys) {
+  try { await api('/api/preview/items-order', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ keys }) }); } catch {}
 }
 
 // ── ⑥ 발행(등록) ─────────────────────────────────────────────────────────────

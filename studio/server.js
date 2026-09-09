@@ -1068,6 +1068,22 @@ const server = http.createServer(async (req, res) => {
       saveState(state);
       return sendJson(res, 200, { ok: true });
     }
+    // ⑤ 미리보기 상품/쇼룸 순서변경·삭제 저장 — keys(정렬된 키 배열)에 맞춰 재정렬·필터
+    //   keyOf: 상품=productCode||productId||productName, 쇼룸=code||name (preview.js keyOf와 동일)
+    if (p === '/api/preview/items-order' && req.method === 'POST') {
+      const { keys } = JSON.parse(await readBody(req) || '{}');
+      const order = Array.isArray(keys) ? keys.map(String) : [];
+      const rank = new Map(order.map((k, i) => [k, i]));
+      const reorder = (arr, kf) => (arr || []).filter((x) => rank.has(kf(x))).sort((a, b) => rank.get(kf(a)) - rank.get(kf(b)));
+      if (state.exposureType === 'showroom') {
+        state.selectedShowrooms = reorder(state.selectedShowrooms, (s) => String(s.code || s.name || ''));
+      } else {
+        const src = (state.selectedProducts && state.selectedProducts.length) ? state.selectedProducts : ((state.selectedContent && state.selectedContent.matched) || []);
+        state.selectedProducts = reorder(src, (m) => String(m.productCode || m.productId || m.productName || ''));
+      }
+      saveState(state);
+      return sendJson(res, 200, { ok: true });
+    }
     // 상품 상세(자세히 팝업용) — productId로 전체 정규화 정보 조회
     if (p === '/api/product') {
       const id = q.get('id');
