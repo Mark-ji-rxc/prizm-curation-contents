@@ -883,19 +883,32 @@ let uploadedImages = []; // 내가 업로드한 이미지(NAS 아님, path='uplo
 $('#imgHotelSelect').addEventListener('change', (e) => loadTarget(+e.target.value));
 $('#imgFilter').addEventListener('input', () => renderGallery());
 async function loadUploads() { try { const { images } = await api('/api/uploads'); uploadedImages = images || []; renderGallery(); } catch {} }
-$('#imgUpload').onchange = async (e) => {
-  const files = [...e.target.files]; if (!files.length) return;
-  const meta = $('#imgMeta'); meta.textContent = `업로드 중… (${files.length}장)`;
+// 파일 목록 → 로컬 업로드(내 PC → studio/uploads, NAS 아님). 버튼 선택·드래그앤드롭 공용
+async function uploadFiles(fileList) {
+  const files = [...fileList].filter((f) => /^image\//.test(f.type) || /\.(jpg|jpeg|png|webp|gif)$/i.test(f.name));
+  if (!files.length) { const m = $('#imgMeta'); if (m) m.textContent = '이미지 파일만 업로드할 수 있어요.'; return; }
+  const meta = $('#imgMeta'); if (meta) meta.textContent = `업로드 중… (${files.length}장)`;
   const payload = [];
   for (const f of files) { const dataUrl = await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(f); }); payload.push({ name: f.name, dataUrl }); }
   try {
     const { images } = await api('/api/upload', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ files: payload }) });
     uploadedImages = [...images, ...uploadedImages];
-    meta.textContent = `업로드 ${images.length}장 추가됨`;
+    if (meta) meta.textContent = `업로드 ${images.length}장 추가됨`;
     renderGallery();
-  } catch (err) { meta.textContent = '업로드 실패: ' + err.message; }
-  e.target.value = '';
-};
+  } catch (err) { if (meta) meta.textContent = '업로드 실패: ' + err.message; }
+}
+$('#imgUpload').onchange = async (e) => { await uploadFiles(e.target.files); e.target.value = ''; };
+// 드래그앤드롭 업로드: 이미지 영역(.img-main)에 파일을 끌어다 놓으면 업로드
+(function setupDropUpload() {
+  const zone = document.querySelector('.img-main'); if (!zone) return;
+  const hint = $('#dropHint');
+  let depth = 0;
+  const hasFiles = (e) => e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files');
+  zone.addEventListener('dragenter', (e) => { if (!hasFiles(e)) return; e.preventDefault(); depth++; zone.classList.add('drag-over'); if (hint) hint.hidden = false; });
+  zone.addEventListener('dragover', (e) => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+  zone.addEventListener('dragleave', (e) => { if (!hasFiles(e)) return; depth = Math.max(0, depth - 1); if (!depth) { zone.classList.remove('drag-over'); if (hint) hint.hidden = true; } });
+  zone.addEventListener('drop', async (e) => { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; zone.classList.remove('drag-over'); if (hint) hint.hidden = true; if (e.dataTransfer.files && e.dataTransfer.files.length) await uploadFiles(e.dataTransfer.files); });
+})();
 function loadTarget(i) { currentTarget = imgTargets[i]; if (currentTarget) loadImages(currentTarget); }
 async function loadImages(target) {
   const meta = $('#imgMeta'); meta.textContent = '불러오는 중…'; recPicks = null; // 선택 이미지는 폴더 전환에도 유지

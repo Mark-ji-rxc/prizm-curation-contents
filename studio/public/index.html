@@ -334,7 +334,7 @@
         <div class="row gap img-controls">
           <select id="imgHotelSelect" class="input"></select>
           <input id="imgFilter" class="input sm" placeholder="카테고리/파일명 필터(예: 라운지, 조식, 오션)" />
-          <label class="btn sm" for="imgUpload" title="내 이미지 업로드">이미지 업로드</label>
+          <label class="btn sm" for="imgUpload" title="내 이미지 업로드 (여기 영역에 드래그해도 업로드돼요)">이미지 업로드</label>
           <input id="imgUpload" type="file" accept="image/*" multiple class="hidden" />
           <button id="toggleTree" class="btn sm ghost">NAS 폴더 직접 찾기</button>
           <span id="imgMeta" class="muted sm"></span>
@@ -350,6 +350,7 @@
         <div id="imgRecBanner" class="banner hidden"></div>
         <div id="selectedStrip" class="selected-strip hidden"></div>
         <div id="gallery" class="gallery"></div>
+        <div id="dropHint" class="drop-hint" hidden>📥 이미지를 여기에 놓으면 업로드돼요</div>
       </div>
     </div>
   </section>

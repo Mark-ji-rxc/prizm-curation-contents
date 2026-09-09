@@ -128,6 +128,8 @@ PRIZM 콘텐츠 제작 전 과정( **크롤링 → 콘텐츠 생성 → 상품 �
 
 ## 변경 이력
 
+- **2026-09-09 (④ 이미지 드래그앤드롭 업로드)**: 이미지 찾기 단계에서 내 PC 이미지를 **이미지 영역(.img-main)에 끌어다 놓으면 업로드**되게 추가(기존 [이미지 업로드] 버튼과 공용 경로 `uploadFiles(fileList)`). dragenter/over/leave/drop 핸들러(파일 타입만 반응, dataTransfer.types에 Files 포함 시), 드래그 중 `.drag-over` 아웃라인 + `#dropHint` 오버레이(pointer-events:none). 업로드 저장 위치는 기존과 동일 **로컬 studio/uploads(NAS 아님)**. 검증(8790): uploadFiles 실제 업로드·drop 이벤트로 오버레이 표시→업로드→해제 확인.
+
 - **2026-09-07 (발행 주체: 프로필/리뷰 선택 + 프로필 드롭다운·업데이트)**: 발행 주체를 쇼룸뿐 아니라 **프로필/리뷰**로도 발행 가능하게. 백오피스 구조 실측: 발행 주체는 ToggleButtonGroup(`[role=group][aria-label="발행 주체"]` 쇼룸/프로필/리뷰), **종류 변경 시 "내용 초기화" 확인 모달(role=dialog, 확인 버튼)** 뜸 → 그래서 **제목·내용보다 먼저 종류를 선택**해야 함(publisher가 그 순서로 처리). 프로필은 `프로필 검색` 자동완성에서 닉네임으로 선택. 프로필 목록 API: `GET {apiBase}/manager/discover/post/profile → [{id,nickname}]`. **구현**: office-posts `fetchProfiles(env)` + 엔드포인트 `GET /api/office/profiles?target=&force=`(env별 캐시, force=업데이트). buildPublishDraft `publisherType:'showroom'`(기본)·`publisherProfile`. publisher: 종류≠쇼룸이면 토글 클릭→확인 모달 처리(제목/내용 앞), profile이면 프로필 검색에서 닉네임 옵션 선택. UI(pub editor): 발행 주체 라디오(쇼룸/프로필/리뷰), 프로필 선택 시 드롭다운(+[프로필 업데이트]) 노출/쇼룸 입력 숨김, collectPubItem이 publisherType/publisherProfile 저장, 검증(prod): profiles 2건(Mark·😎에디터 Jayce), UI 토글·드롭다운 로드·프로필 선택/토글전환·확인모달 처리 실측 확인.
 
 - **2026-09-07 (본문형별 가격·할인 언급 절제 — 편성 다양화)**: 글자수 길수록 모든 콘텐츠에 가격/할인이 습관적으로 들어가 편성이 단조로운 문제 개선. `priceRule` 추가 — 가격·할인율·최저가는 그게 핵심 훅인 형(⑨숫자·근거·⑧비교·대조·⑥조건·타깃(가성비))에서만, 감성·경험형(①후기·고백·②장면·몰입·⑦질문·대화·⑩큐레이터편지·③반전·통념깨기)은 가격·할인 언급 없이 장면·감정·경험 중심, 본문이 길어져도 습관적 가격 문장 금지. generate·brief 지시문 + CONTENT_RULES.가격언급 + 제작가이드 md 반영. 검증(8793): generate job 지시문·rules에 반영.

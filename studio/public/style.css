@@ -168,7 +168,9 @@ textarea.input { resize: vertical; font-family: inherit; line-height: 1.5; width
 /* ④ 이미지 찾기 — 좌측 정보 패널 + 갤러리 */
 .img-layout { display: flex; gap: 18px; margin-top: 14px; align-items: flex-start; }
 .img-side { flex: 0 0 240px; width: 240px; position: sticky; top: 70px; }
-.img-main { flex: 1; min-width: 0; }
+.img-main { flex: 1; min-width: 0; position: relative; }
+.img-main.drag-over { outline: 2px dashed var(--accent); outline-offset: 4px; border-radius: 8px; }
+.drop-hint { position: absolute; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; font-size: var(--fs-heading); font-weight: 600; color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); border: 2px dashed var(--accent); border-radius: 8px; pointer-events: none; }
 .side-block { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; background: var(--panel); }
 .side-h { font-size: var(--fs-meta); color: var(--muted); font-weight: 600; margin-bottom: 6px; }
 .side-title { font-size: var(--fs-heading); font-weight: 700; margin-bottom: 6px; }
