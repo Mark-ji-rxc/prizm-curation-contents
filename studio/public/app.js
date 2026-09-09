@@ -1025,15 +1025,17 @@ function pollImageRec(jobId, banner, auto) {
 }
 $('#confirmImages').onclick = async () => {
   const imgs = selectedTiles.size ? [...selectedTiles.values()] : (recPicks || []).map((pk) => allImages().find((im) => im.path === pk.nasPath)).filter(Boolean);
-  if (!imgs.length) return alert('이미지를 선택하거나 Claude 추천을 받은 뒤 컨펌하세요.');
+  // 이미지 없이도 미리보기로 진행 가능(상품/쇼룸만 등록 시 이미지 불필요). 형태 검증은 ⑤ 발행 형태 선택에서.
   const payload = imgs.map((im) => ({ nasPath: im.path, hotel: im.hotel, folder: im.folder, name: im.name, mtime: im.mtime }));
   await api('/api/images/confirm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ images: payload }) });
   markDone(4); goStep(5);
 };
 
 // ── ④ 미리보기 ───────────────────────────────────────────────────────────────
+let confirmedImageCount = 0; // ⑤ 발행 형태 검증용(①/③은 이미지 필수)
 async function renderPreviews() {
   const d = await api('/api/preview');
+  confirmedImageCount = (d.images || []).length;
   window.renderPrizmPreviews($('#previewArea'), d.content, d.images, d.products, d.matches || {}, saveMatches);
 }
 async function saveMatches(matches) {
@@ -1053,6 +1055,9 @@ $$('input[name="pubFormat"]').forEach((r) => r.onchange = async () => {
 $('#toPublish').onclick = async () => {
   const chosen = document.querySelector('input[name="pubFormat"]:checked');
   if (!chosen) return alert('발행 형태(①/②/③)를 선택하세요.');
+  if ((chosen.value === 'normal' || chosen.value === 'custom') && !confirmedImageCount) {
+    return alert('①·③ 형태는 이미지가 필요해요. ④ 이미지 찾기에서 이미지를 선택해 주세요.\n(이미지 없이 등록하려면 ② 상품/쇼룸만 을 선택하세요.)');
+  }
   try { await api('/api/publish/format', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: chosen.value }) }); } catch {}
   await addCurrentToQueue(); goStep(6);
 };
