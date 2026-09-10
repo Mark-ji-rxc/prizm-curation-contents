@@ -56,7 +56,7 @@ PRIZM 콘텐츠 제작 전 과정( **크롤링 → 콘텐츠 생성 → 상품 �
 - **콘텐츠**: `POST /api/content/generate {scope,region?,count,topic?,form?,persona?}` → `{jobId,productCount}`(job 생성). `GET /api/content/job?id=` → `{status,items?}`. `POST /api/content/select {item}` → state 저장.
 - **이미지**(image-picker 이식): `GET /api/hotels`, `/api/images?hotel=`, `/api/candidates?hotel=`, `/api/tree?path=`, `/api/list-images?path=`, `/api/thumb?path=&size=&mtime=`, `/api/original?path=`.
 - **이미지 추천**: `POST /api/images/export {hotel,items[],theme,body,label}` → 후보 large썸네일 `exports/<라벨>/` 저장 + imagerec job 생성 → `{jobId,dir}`. `GET /api/images/job?id=` → `{status,picks?}`(picks는 manifest로 NAS경로 매핑됨). `POST /api/images/confirm {images[]}` → state 저장.
-- **미리보기**: `GET /api/preview` → `{content, images}`.
+- **미리보기**: `GET /api/preview` → `{content, images, products, matches, exposureType}`. `POST /api/content/matches {matches}`(상품↔이미지 매칭). `POST /api/preview/items-order {keys[]}` → ⑤ 상품/쇼룸 순서변경·삭제(정렬 key 배열대로 selectedProducts/selectedShowrooms 재정렬·필터). 이미지 순서변경·삭제는 `POST /api/images/confirm`(confirmedImages 갱신) 재사용.
 
 ---
 
@@ -127,6 +127,11 @@ PRIZM 콘텐츠 제작 전 과정( **크롤링 → 콘텐츠 생성 → 상품 �
 ---
 
 ## 변경 이력
+
+- **2026-09-10 (⑤ 미리보기 이미지/상품 순서변경·삭제 + ④ 갤러리 가로/세로 구분 + 이미지 없이 진행)**: 세 가지.
+  ① **미리보기 순서변경·삭제**(요청): 카드 ①(이미지+상품/쇼룸)은 각 이미지에, 카드 ②(상품/쇼룸만)는 각 상품/쇼룸 카드에 `◀ ▶`(순서)·`✕`(삭제) 오버레이(`preview.js` `ctl()`/`onCtl()`, `.pv-ctl` CSS). 이미지 변경 → `saveImageOrder`→`POST /api/images/confirm`(state.confirmedImages), 상품 변경 → `saveItemOrder(keys)`→**신규 `POST /api/preview/items-order`**(정렬된 key 배열로 `state.selectedProducts`/`selectedShowrooms` 재정렬·필터; keyOf=상품 productCode||productId||productName, 쇼룸 code||name; goods는 selectedProducts 비면 content.matched를 소스로). 순서/삭제가 `buildPublishDraft`→발행 큐→publisher(스테이징 `01_`,`02_`… 순·상품 순차 조회)까지 그대로 반영. `renderPrizmPreviews(...opts)`에 `{onImages,onItems}` 추가.
+  ② **갤러리 가로/세로 구분**(요청): `renderGallery`에서 각 타일 img의 naturalWidth/Height로 판별해 세로형에 `.tile.portrait` 부여 → `object-fit:contain`(좌우 여백)+좌상단 `'세로'` 배지, 가로형은 기존 `cover`. 검증(8790): NAS 232장 로드, 표본 15장 판별 정확도 100%(1024×1366 등=세로, 4168×2779 등=가로).
+  ③ **이미지 없이 미리보기 진행**(요청): 이미지 컨펌 버튼에서 미선택 차단 alert 제거(빈 배열 컨펌 후 ⑤로). ⑤ `#toPublish`에서 형태가 `normal`(①)·`custom`(③)인데 `confirmedImageCount===0`이면 알림 후 차단(②는 통과). 검증(실서버): 상품 순서 뒤집기·삭제 → /api/preview·발행 draft.items 반영, 상품 원본 복원.
 
 - **2026-09-09 (④ 이미지 드래그앤드롭 업로드)**: 이미지 찾기 단계에서 내 PC 이미지를 **이미지 영역(.img-main)에 끌어다 놓으면 업로드**되게 추가(기존 [이미지 업로드] 버튼과 공용 경로 `uploadFiles(fileList)`). dragenter/over/leave/drop 핸들러(파일 타입만 반응, dataTransfer.types에 Files 포함 시), 드래그 중 `.drag-over` 아웃라인 + `#dropHint` 오버레이(pointer-events:none). 업로드 저장 위치는 기존과 동일 **로컬 studio/uploads(NAS 아님)**. 검증(8790): uploadFiles 실제 업로드·drop 이벤트로 오버레이 표시→업로드→해제 확인.
 
