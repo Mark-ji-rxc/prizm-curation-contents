@@ -104,6 +104,9 @@ const contentKey = (it) => crypto.createHash('sha1').update((it.title || '') + '
 const REFERENCE_FILE = path.join(REF_DIR, 'reference-content.json');
 const REFERENCE_MD = path.join(REF_DIR, '모범콘텐츠_학습.md');
 function loadReferences() { return loadJson(REFERENCE_FILE) || []; }
+// 공유 학습 가이드(제목·톤 원칙) — 공유 코퍼스 repo에 learning-guide.json 이 있으면 모든 사용자 생성에 주입.
+const SHARED_GUIDE_FILE = path.join(REF_DIR, 'learning-guide.json');
+function loadSharedGuide() { try { return loadJson(SHARED_GUIDE_FILE) || null; } catch { return null; } }
 // 모범 콘텐츠를 사람이 읽고 이어서 쓸 수 있는 마크다운으로도 저장·갱신(지속 학습 자산).
 function writeReferenceMarkdown() {
   const refs = loadReferences();
@@ -728,10 +731,15 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
   const refLine = references.length
     ? `★ referenceExamples: 실제 에디터가 쓴 우수 콘텐츠 ${references.length}편이다(제목/본문/형). 이 톤·구성·구체성·완성도를 "학습"해 같은 퀄리티로 써라. 문장·표현을 그대로 베끼지 말고 스타일·디테일 수준만 흡수한다.`
     : '';
-  // 저장 콘텐츠 학습 분석에서 도출된 원칙(있으면 생성에 주입 — 사용자 선호 스타일 반영)
+  // 학습 원칙(있으면 생성에 주입) — 공유 코퍼스의 learning-guide.json(모든 사용자 공통) + 이 PC의 saved-insights.json 을 합침(중복 제거). 제목 도출 최우선.
   const _ins = loadSavedInsights();
-  const insLine = (_ins && Array.isArray(_ins.principles) && _ins.principles.length)
-    ? `★ savedInsights: 사용자가 "저장(좋아요)"한 콘텐츠들을 분석해 도출한 선호 원칙이다. 이 원칙을 적극 반영해 사용자가 좋아할 스타일로 써라:\n- ${_ins.principles.join('\n- ')}`
+  const _guide = loadSharedGuide();
+  const _principles = [...new Set([
+    ...((_guide && Array.isArray(_guide.principles)) ? _guide.principles : []),
+    ...((_ins && Array.isArray(_ins.principles)) ? _ins.principles : []),
+  ])];
+  const insLine = _principles.length
+    ? `★ savedInsights: 실제 공개중 콘텐츠 학습에서 도출한 선호 원칙이다. 이 원칙을 적극 반영해 써라(특히 제목):\n- ${_principles.join('\n- ')}`
     : '';
   const typeDesc = (productTypes && productTypes.length) ? ` · 타입: ${productTypes.join(', ')}만` : '';
   const scopeDesc = ((productCodes && productCodes.length) ? `직접 선택한 상품 ${items.length}개 한정` : (cond === 'until' ? `${until || ''}까지 판매(상시 포함)` : (CONDITION_LABEL[cond] || '판매중') + ' 상품')) + typeDesc;
