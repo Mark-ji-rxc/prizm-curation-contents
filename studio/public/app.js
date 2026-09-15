@@ -1161,6 +1161,15 @@ function renderKw(it) {
   el.innerHTML = kws.map((k, i) => `<span class="chip">${esc(k.name)}${k.isNew ? ' <span class="muted sm">(신규)</span>' : ''} <b class="kw-x" data-i="${i}">✕</b></span>`).join('') || '<span class="muted sm">없음</span>';
   $$('#pf-kw-list .kw-x').forEach((b) => b.onclick = () => { it.filterKeywords.splice(+b.dataset.i, 1); renderKw(it); });
 }
+// 키워드 1건 추가(중복 방지). 신규 여부는 [신규 등록] 체크 상태로.
+function addPubKeyword(it, name) {
+  const v = String(name || '').trim();
+  if (!v) return false;
+  it.filterKeywords = it.filterKeywords || [];
+  if (it.filterKeywords.some((k) => (k && k.name || '') === v)) return false;
+  it.filterKeywords.push({ name: v, isNew: !!($('#pf-kw-new') && $('#pf-kw-new').checked) });
+  return true;
+}
 function wirePubEditor(it) {
   const t = $('#pf-title'); if (t) t.oninput = () => { $('#pf-title-c').textContent = t.value.length + '/24'; };
   const un = $('#pf-unlimited'); if (un) un.onchange = () => { const e = $('#pf-end'); if (e) e.disabled = un.checked; };
@@ -1168,7 +1177,12 @@ function wirePubEditor(it) {
   $$('#pf-item-rows .pf-item-del').forEach((b) => b.onclick = () => { const i = +b.closest('tr').dataset.i; it.items = collectItems(it); it.items.splice(i, 1); renderPubEditor(); });
   const gen = $('#pf-gen-desc'); if (gen) gen.onclick = () => genDescriptions(it);
   renderKw(it);
-  const kwIn = $('#pf-kw-input'); if (kwIn) kwIn.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); const v = kwIn.value.trim(); if (v) { it.filterKeywords = it.filterKeywords || []; it.filterKeywords.push({ name: v, isNew: $('#pf-kw-new').checked }); kwIn.value = ''; renderKw(it); } } };
+  const kwIn = $('#pf-kw-input');
+  if (kwIn) kwIn.onkeydown = (e) => {
+    if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return; // 한글 IME 조합 중 Enter는 조합 확정용 → 무시(입력 잔여는 저장 시 자동 반영)
+    e.preventDefault();
+    if (addPubKeyword(it, kwIn.value)) { kwIn.value = ''; renderKw(it); }
+  };
   // 발행 주체 종류(쇼룸/프로필/리뷰) 토글 + 프로필 드롭다운
   const applyPtype = () => {
     const t = (document.querySelector('input[name="pf-ptype"]:checked') || {}).value || 'showroom';
@@ -1208,6 +1222,8 @@ function collectPubItem(it) {
   it.displayOrder = $('#pf-order').value === '' ? null : Number($('#pf-order').value);
   it.displayVisible = $('#pf-visible').checked;
   it.displayPeriod = { start: $('#pf-start').value, end: $('#pf-end').value, unlimited: $('#pf-unlimited').checked };
+  // 입력창에 남은(Enter 안 누른/IME로 유실된) 필터 키워드도 반영 — 유실 방지
+  const kwPending = $('#pf-kw-input'); if (kwPending && kwPending.value.trim()) { addPubKeyword(it, kwPending.value); kwPending.value = ''; renderKw(it); }
   return it;
 }
 async function savePubItem(it) {
