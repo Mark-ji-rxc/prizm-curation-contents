@@ -55,12 +55,10 @@ async function publishItem(item, stagedFiles, customImages) {
       await opt.click(); await page.waitForTimeout(400);
       step('발행 주체(프로필): ' + nick);
     } else if (ptype === 'showroom' && item.publisherShowroom) {
+      // 옵션은 "<id>\n<이름>" 형식 → id 접두 제거 후 이름 완전일치(예: "체크인"이 "경주 체크인불국"에 먹히지 않게)
       const sr = page.getByPlaceholder('쇼룸 검색').first();
-      await sr.click(); await sr.fill(item.publisherShowroom);
-      await page.waitForTimeout(800);
-      const opt = page.getByRole('option').filter({ hasText: new RegExp('\\d+\\s+' + escapeRe(item.publisherShowroom) + '$') }).first();
-      if (await opt.count()) await opt.click();
-      else await page.getByRole('option').filter({ hasText: item.publisherShowroom }).first().click({ timeout: 5000 });
+      const ok = await selectShowroomOption(page, sr, item.publisherShowroom);
+      if (!ok) throw new Error('발행 주체 쇼룸 "' + item.publisherShowroom + '"을(를) 백오피스에서 찾지 못했습니다.');
       step('발행 주체(쇼룸): ' + item.publisherShowroom);
     }
 
@@ -99,7 +97,22 @@ async function publishItem(item, stagedFiles, customImages) {
       step('상품 ' + picked.length + '개 추가');
       if (isCustom) await fillCustomRows(page, goods, customImages, step);
     }
-    // (쇼룸 노출은 별도 — 아이템 쇼룸 탭. 후속 확장)
+    // 5-1) 아이템 — 쇼룸 노출: 아이템 '쇼룸' 탭에서 "기존 쇼룸을 선택"(선택 즉시 표에 추가).
+    //      ⚠️ 절대 신규 쇼룸을 생성하지 않는다 — 드롭다운의 기존 옵션 중 이름이 정확히 일치하는 것만 선택, 없으면 실패 처리.
+    const showrooms = (item.items || []).filter((x) => x.kind === 'showroom' && (x.showroomName || x.hotel || x.region));
+    if (showrooms.length) {
+      const srTab = page.getByRole('tab').filter({ hasText: '쇼룸' }).first();
+      if (await srTab.count()) { await srTab.click(); await page.waitForTimeout(700); }
+      const pick = page.getByPlaceholder('쇼룸 선택').first();
+      await pick.waitFor({ timeout: 8000 }).catch(() => {});
+      const picked = [], missed = [];
+      for (const s of showrooms) {
+        const name = s.showroomName || s.hotel || s.region;
+        if (await selectShowroomOption(page, pick, name)) picked.push(name); else missed.push(name);
+      }
+      if (missed.length) throw new Error('쇼룸 조회 실패 — 백오피스에 없는(또는 이름이 다른) 쇼룸: ' + missed.join(' / ') + '. 신규 생성은 하지 않으니 백오피스에 존재하는 쇼룸명으로 맞춰주세요.' + (picked.length ? ' · (일부만 추가됨)' : ''));
+      step('쇼룸 ' + picked.length + '개 추가');
+    }
 
     // 5-2) 필터 키워드 — 등록된 키워드는 자동완성에서 선택, 신규는 [키워드 관리]에서 먼저 등록 후 선택
     await setFilterKeywords(page, item.filterKeywords, step);
@@ -204,6 +217,30 @@ async function registerKeyword(page, name, step) {
   await page.waitForTimeout(500);
 }
 
+// 쇼룸 드롭다운 옵션 텍스트("<id>\n<이름>")에서 이름만 추출(선두 id 제거)
+function showroomOptionName(t) { return String(t || '').replace(/\s+/g, ' ').trim().replace(/^\d+\s+/, '').trim(); }
+// 쇼룸 자동완성에서 "기존 옵션"만 선택(이름 완전일치 우선, 공백무시 일치 폴백). 없으면 false — 절대 신규 생성하지 않음.
+async function selectShowroomOption(page, input, name) {
+  const target = String(name || '').trim();
+  if (!target) return false;
+  await input.click(); await input.fill(''); await input.fill(target);
+  await page.waitForTimeout(1000);
+  const opts = page.getByRole('option');
+  const n = await opts.count();
+  const key = norm(target);
+  let exactIdx = -1, normIdx = -1;
+  for (let i = 0; i < n; i++) {
+    const nm = showroomOptionName(await opts.nth(i).innerText().catch(() => ''));
+    if (nm === target) { exactIdx = i; break; }
+    if (normIdx < 0 && norm(nm) === key) normIdx = i;
+  }
+  const idx = exactIdx >= 0 ? exactIdx : normIdx;
+  if (idx < 0) { await page.keyboard.press('Escape').catch(() => {}); return false; } // 없으면 선택 안 함(생성 금지)
+  await opts.nth(idx).click().catch(() => {});
+  await page.waitForTimeout(700);
+  return true;
+}
+
 // 상품조회 모달 검색조건 선택 (MUI Select = role=button name "searchType"). 옵션: 전체/상품ID/상품명
 async function setSearchType(page, modal, typeName) {
   const sel = modal.getByRole('button', { name: 'searchType' }).first();
@@ -268,6 +305,4 @@ async function selectGoodsInModal(page, modal, g) {
   }
   return false;
 }
-function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-
-module.exports = { publishItem, __test: { selectGoodsInModal, cleanName, searchFragment, matchRowByName, setFilterKeywords } };
+module.exports = { publishItem, __test: { selectGoodsInModal, cleanName, searchFragment, matchRowByName, setFilterKeywords, selectShowroomOption, showroomOptionName } };
