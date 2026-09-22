@@ -36,9 +36,11 @@ const PORT = process.env.PORT || 8790;
 // ── NAS 설정(이미지-피커와 공유) ─────────────────────────────────────────────
 function loadJson(file) { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } }
 const nasCfg = loadJson(path.join(IP_DIR, 'nas.config.json'));
-// 이미지 추천기와 같은 계정으로 NAS 에 붙으므로 session 이름을 달리한다 —
-// 같은 이름이면 나중에 로그인한 쪽이 앞의 SID 를 끊는다(synology.js 주석 참고).
-const syno = nasCfg ? new Synology({ ...nasCfg, session: nasCfg.session || 'PrizmStudio' }) : null;
+// 이미지 추천기와 같은 계정으로 NAS 에 붙는다.
+// 세션명은 DSM에 등록된 앱 이름이어야 한다 — 임의 이름('PrizmStudio' 등)은 로그인이 code=402로 거부된다.
+// 이미지피커와 같은 'FileStation'을 쓰면 나중에 로그인한 쪽이 앞의 SID를 끊을 수 있지만,
+// synology.js가 SID 무효(105/106/107/119)를 감지해 자동 재로그인·재시도하므로 안전하다.
+const syno = nasCfg ? new Synology({ ...nasCfg, session: nasCfg.session || 'FileStation' }) : null;
 if (!fs.existsSync(THUMB_CACHE)) fs.mkdirSync(THUMB_CACHE, { recursive: true });
 
 // 예기치 못한 에러로 서버가 통째로 죽지 않도록(죽으면 이후 모든 요청이 "Failed to fetch") 가드.
