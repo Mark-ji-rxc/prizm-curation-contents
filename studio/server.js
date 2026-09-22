@@ -438,11 +438,11 @@ function resolveClaudeBin() {
 }
 const CLAUDE_BIN = resolveClaudeBin();
 // job을 실패로 표시(이미 done이면 건드리지 않음). UI가 무한 스피너에 갇히지 않게 하는 장치.
-function markJobFailed(jobId, error) {
+function markJobFailed(jobId, error, force) {
   try {
     const jp = jobs.jobPath(jobId);
     const j = JSON.parse(fs.readFileSync(jp, 'utf8'));
-    if (j.status === 'done') return;
+    if (j.status === 'done' && !force) return;
     j.status = 'failed';
     j.error = error;
     j.failedAt = new Date().toISOString();
@@ -478,6 +478,12 @@ function dispatchToClaude(jobId, kind) {
       }
       const still = jobs.readJob(jobId);
       if (still && still.status === 'pending') markJobFailed(jobId, '처리가 완료되지 않았습니다(결과 미기록). 로그를 확인하세요.');
+      // done인데 결과가 비어 있으면 실패로 본다(프로세스가 끝난 뒤 검사하므로 쓰기 경합은 아님)
+      else if (still && still.status === 'done' && still.type === 'content') {
+        const ph = still.input && still.input.phase;
+        const n = ph === 'plan' ? ((still.output && still.output.topics) || []).length : ((still.output && still.output.items) || []).length;
+        if (!n) markJobFailed(jobId, ph === 'plan' ? '주제 기획 결과가 비어 있습니다.' : '생성 결과가 비어 있습니다.', true);
+      }
       // 토큰/비용 사용량 파싱 → job에 기록(“토큰 쓰는지” 확인·표시용)
       try {
         const j = JSON.parse(out);
@@ -1078,7 +1084,8 @@ const server = http.createServer(async (req, res) => {
       if (shardIds && shardIds.length) {
         const kids = shardIds.map((id) => jobs.readJob(id)).filter(Boolean);
         const failed = kids.find((k) => k.status === 'failed');
-        const doneKids = kids.filter((k) => k.status === 'done');
+        // status=done 직후 items가 아직 안 써진 순간이 있어(에이전트가 나눠 저장) 결과 존재까지 확인한다
+        const doneKids = kids.filter((k) => k.status === 'done' && ((k.output && k.output.items) || []).length > 0);
         const allDone = kids.length === shardIds.length && doneKids.length === shardIds.length;
         const items = allDone ? doneKids.reduce((a, k) => a.concat((k.output && k.output.items) || []), []) : null;
         return sendJson(res, 200, {
@@ -1092,7 +1099,7 @@ const server = http.createServer(async (req, res) => {
       const planning = job.input && job.input.phase === 'plan' && job.status !== 'failed';
       return sendJson(res, 200, {
         id: job.id, status: job.status, input: job.input,
-        items: (job.output && job.output.items) || null, usage: job.usage || null,
+        items: ((job.output && job.output.items) || []).length ? job.output.items : null, usage: job.usage || null,
         error: job.error || null,
         progress: planning ? { phase: 'plan', done: 0, total: 0 } : null,
       });
