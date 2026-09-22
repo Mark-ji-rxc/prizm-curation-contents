@@ -223,7 +223,7 @@ async function submitGeneration(extra) {
       : `${scopeNote} 기준 · 주제 ${body.count}개 × ${body.perTopic || 1} = 콘텐츠 ${total}편${web}`;
     if (auto) autoBanner(banner, note);
     else showJobBanner(banner, '콘텐츠 생성 요청 처리해줘', note);
-    pollContent(jobId, banner, auto, stampCat);
+    pollContent(jobId, banner, auto, stampCat, note);
   } catch (e) { banner.innerHTML = '오류: ' + esc(e.message); }
 }
 $('#genContent').onclick = () => submitGeneration({ mode: 'generate', topic: $('#cTopic').value.trim(), count: $('#cCount').value, perTopic: $('#cPerTopic').value, forms: [...selForms], persona: $('#cPersona').value.trim(), model: $('#cModel').value });
@@ -304,6 +304,9 @@ function pollBriefJob(j, jobs, scope) {
     tries++;
     try {
       const s = await api('/api/content/job?id=' + j.jobId);
+      if (s.status === 'failed') { // 실패 즉시 표시(무한 대기 방지)
+        clearInterval(t); j.status = 'failed'; j.error = s.error || '생성 실패'; renderBriefBatch(jobs); return;
+      }
       if (s.status === 'done' && s.items) {
         clearInterval(t); s.items.forEach((it) => { it.category = stampCat; });
         genItems.push(...s.items); renderContentCards(); markDone(2);
@@ -436,12 +439,18 @@ function usageLine(u) {
   const inTok = (u.inputTokens || 0) + (u.cacheReadTokens || 0) + (u.cacheCreateTokens || 0);
   return `생성 완료 · 모델 ${esc(u.model || '')} · 토큰 입력 ${inTok.toLocaleString()} / 출력 ${(u.outputTokens || 0).toLocaleString()} · 비용 $${(u.costUsd || 0).toFixed(4)} · ${Math.round((u.durationMs || 0) / 1000)}초`;
 }
-function pollContent(jobId, banner, auto, stampCat) {
+function pollContent(jobId, banner, auto, stampCat, note) {
   let tries = 0;
   const t = setInterval(async () => {
     tries++;
     try {
       const s = await api('/api/content/job?id=' + jobId);
+      if (s.status === 'failed') { // 실패는 즉시 알린다(예전엔 무한 스피너였음)
+        clearInterval(t);
+        banner.classList.remove('hidden');
+        banner.innerHTML = `<b>생성 실패</b> — ${esc(s.error || '알 수 없는 오류')}<div class="muted sm">서버 로그(터미널)에서 자세한 내용을 볼 수 있어요.</div>`;
+        return;
+      }
       if (s.status === 'done' && s.items) {
         if (stampCat) s.items.forEach((it) => { it.category = stampCat; }); // 생성 scope로 국내/해외 분류 기록
         clearInterval(t); renderContentCards(s.items); markDone(2);
@@ -449,7 +458,14 @@ function pollContent(jobId, banner, auto, stampCat) {
         if (!s.usage) setTimeout(async () => { try { const s2 = await api('/api/content/job?id=' + jobId); banner.innerHTML = usageLine(s2.usage); } catch {} }, 3000);
         return;
       }
-      if (auto && tries === 60) showJobBanner(banner, '콘텐츠 생성 요청 처리해줘', '자동 처리가 지연되네요. 이 문구를 입력하면 수동으로 처리돼요.');
+      // 샤딩 진행 상황 표시(주제 기획 중 → 샤드 n/m 집필 중)
+      const pr = s.progress;
+      if (pr && auto) {
+        const label = pr.phase === 'plan' ? '주제 기획 중…' : `집필 중 ${pr.done}/${pr.total} 완료`;
+        banner.classList.remove('hidden');
+        banner.innerHTML = `<span class="spinner"></span> ${esc(label)}${note ? ' · ' + esc(note) : ''}`;
+      }
+      if (auto && tries === 60 && !pr) showJobBanner(banner, '콘텐츠 생성 요청 처리해줘', '자동 처리가 지연되네요. 이 문구를 입력하면 수동으로 처리돼요.');
     } catch (e) { clearInterval(t); banner.innerHTML = '오류: ' + esc(e.message); }
   }, 1500);
 }

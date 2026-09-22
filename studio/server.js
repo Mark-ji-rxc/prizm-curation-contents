@@ -36,7 +36,9 @@ const PORT = process.env.PORT || 8790;
 // ── NAS 설정(이미지-피커와 공유) ─────────────────────────────────────────────
 function loadJson(file) { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } }
 const nasCfg = loadJson(path.join(IP_DIR, 'nas.config.json'));
-const syno = nasCfg ? new Synology(nasCfg) : null;
+// 이미지 추천기와 같은 계정으로 NAS 에 붙으므로 session 이름을 달리한다 —
+// 같은 이름이면 나중에 로그인한 쪽이 앞의 SID 를 끊는다(synology.js 주석 참고).
+const syno = nasCfg ? new Synology({ ...nasCfg, session: nasCfg.session || 'PrizmStudio' }) : null;
 if (!fs.existsSync(THUMB_CACHE)) fs.mkdirSync(THUMB_CACHE, { recursive: true });
 
 // 예기치 못한 에러로 서버가 통째로 죽지 않도록(죽으면 이후 모든 요청이 "Failed to fetch") 가드.
@@ -435,6 +437,20 @@ function resolveClaudeBin() {
   return 'claude'; // PATH에 있으면 사용
 }
 const CLAUDE_BIN = resolveClaudeBin();
+// job을 실패로 표시(이미 done이면 건드리지 않음). UI가 무한 스피너에 갇히지 않게 하는 장치.
+function markJobFailed(jobId, error) {
+  try {
+    const jp = jobs.jobPath(jobId);
+    const j = JSON.parse(fs.readFileSync(jp, 'utf8'));
+    if (j.status === 'done') return;
+    j.status = 'failed';
+    j.error = error;
+    j.failedAt = new Date().toISOString();
+    fs.writeFileSync(jp, JSON.stringify(j, null, 2));
+    console.error(`[auto-claude] ${jobId} 실패로 표시: ${error}`);
+  } catch {}
+}
+
 function dispatchToClaude(jobId, kind) {
   if (!AUTO_CLAUDE) return false;
   const job = jobs.readJob(jobId);
@@ -450,9 +466,18 @@ function dispatchToClaude(jobId, kind) {
     let out = '', err = '';
     child.stdout.on('data', (d) => (out += d));
     child.stderr.on('data', (d) => (err += d));
-    child.on('error', (e) => console.error(`[auto-claude] ${kind} ${jobId} spawn 실패:`, e.message));
+    child.on('error', (e) => { console.error(`[auto-claude] ${kind} ${jobId} spawn 실패:`, e.message); markJobFailed(jobId, 'Claude 실행 실패: ' + e.message); });
     child.on('close', (code) => {
       console.log(`[auto-claude] ${kind} ${jobId} 종료(code ${code}, model ${model})`);
+      // 실패를 job에 남긴다 — 예전엔 실패해도 status가 pending 그대로라 UI가 무한 대기했다.
+      try {
+        const j0 = JSON.parse(out);
+        if (j0.is_error) markJobFailed(jobId, String(j0.result || '실행 오류').slice(0, 300));
+      } catch {
+        if (code !== 0) markJobFailed(jobId, 'Claude 실행 실패(code ' + code + ') — ' + String(err || out).trim().slice(-200));
+      }
+      const still = jobs.readJob(jobId);
+      if (still && still.status === 'pending') markJobFailed(jobId, '처리가 완료되지 않았습니다(결과 미기록). 로그를 확인하세요.');
       // 토큰/비용 사용량 파싱 → job에 기록(“토큰 쓰는지” 확인·표시용)
       try {
         const j = JSON.parse(out);
@@ -468,6 +493,56 @@ function dispatchToClaude(jobId, kind) {
     console.error('[auto-claude] 실행 불가:', e.message);
     return false;
   }
+}
+
+// ── 생성 병렬화(샤딩) ────────────────────────────────────────────────────────
+// 한 job에서 N편을 순차로 쓰면 20편에 20분씩 걸린다(실측). 그래서 2단계로 나눈다:
+//   1단계 plan  : 전체 상품을 보고 주제 N개를 "한 번에" 기획 → 주제 다양성은 여기서 보장(품질 유지)
+//   2단계 write : 기획된 주제를 K개로 쪼개 동시에 집필 → 벽시계 시간이 대략 1/K
+// 주제 도출을 전역 1회로 유지하므로 샤드끼리 주제가 겹치지 않는다.
+const SHARD_MIN_COUNT = 6;   // 이 미만이면 쪼개지 않고 기존 단일 job으로
+const SHARD_PER_JOB = 5;     // 샤드 1개가 맡는 주제 수
+const SHARD_MAX = 4;         // 동시 실행 상한(과도한 병렬 방지)
+function shardCountFor(n) { return Math.max(1, Math.min(SHARD_MAX, Math.ceil(n / SHARD_PER_JOB))); }
+
+// plan job이 끝나면 주제를 나눠 write job 여러 개를 동시에 띄운다.
+function watchPlanAndFanOut(planId, body) {
+  const started = Date.now();
+  const timer = setInterval(() => {
+    let plan;
+    try { plan = jobs.readJob(planId); } catch { plan = null; }
+    if (!plan) { clearInterval(timer); return; }
+    if (plan.status === 'failed') { clearInterval(timer); return; }
+    if (Date.now() - started > 20 * 60 * 1000) { // 20분 넘으면 포기
+      clearInterval(timer);
+      markJobFailed(planId, '주제 기획 단계가 시간 내에 끝나지 않았습니다.');
+      return;
+    }
+    if (plan.status !== 'done') return;
+    clearInterval(timer);
+    const topics = (plan.output && plan.output.topics) || [];
+    if (!topics.length) { markJobFailed(planId, '주제 기획 결과(topics)가 비어 있습니다.'); return; }
+    try {
+      const k = shardCountFor(topics.length);
+      const size = Math.ceil(topics.length / k);
+      const shardJobs = [];
+      for (let i = 0; i < k; i++) {
+        const slice = topics.slice(i * size, (i + 1) * size);
+        if (!slice.length) continue;
+        const wj = buildContentJob({ ...body, phase: 'write', assignedTopics: slice, shardIndex: i, shardTotal: k, count: slice.length });
+        shardJobs.push(wj.id);
+        dispatchToClaude(wj.id, 'content(write ' + (i + 1) + '/' + k + ')');
+      }
+      const jp = jobs.jobPath(planId);
+      const o = JSON.parse(fs.readFileSync(jp, 'utf8'));
+      o.output = o.output || {};
+      o.output.shardJobs = shardJobs;
+      fs.writeFileSync(jp, JSON.stringify(o, null, 2));
+      console.log(`[shard] ${planId} → 주제 ${topics.length}개를 write job ${shardJobs.length}개로 병렬 실행`);
+    } catch (e) {
+      markJobFailed(planId, '샤드 생성 실패: ' + e.message);
+    }
+  }, 2000);
 }
 
 // ── 콘텐츠 제작 규칙 요약(가이드 발췌 — job에 첨부해 Claude가 그대로 따르게) ────
@@ -682,17 +757,27 @@ function resolveShowrooms(matched) {
 }
 
 // 상품을 job에 넣을 때 토큰 절약을 위해 필요한 필드만 + 혜택 요약(속도 개선). 긴 원문(detail) 대신 압축.
+// job 첨부용 상품 압축. 상품 1,300여 건을 붙이면 컨텍스트를 크게 먹고, 에이전트가 매 턴 그걸
+// 다시 읽어(캐시) 생성이 느려진다 → url은 productCode에서 파생 가능하므로 빼고, flags는 true인 것만
+// 배열로, 빈 값은 생략한다. (실측 523KB → 199KB, 62% 절감)
 function compactForJob(items) {
-  return items.map((r) => ({
-    productId: r.productId, productCode: r.productCode, hotel: r.hotel, region: r.region, type: r.type, productType: r.productType,
-    name: r.name, price: r.price, discount: r.discount, nights: r.nights, status: r.status, url: r.url,
-    flags: r.flags, benefits: (r.detail || '').replace(/\s+/g, ' ').trim().slice(0, 160),
-  }));
+  return items.map((r) => {
+    const o = {
+      productId: r.productId, productCode: r.productCode, hotel: r.hotel, region: r.region, type: r.type,
+      productType: r.productType, name: r.name, price: r.price, nights: r.nights, status: r.status,
+    };
+    if (r.discount) o.discount = r.discount;
+    const on = Object.entries(r.flags || {}).filter(([, v]) => v).map(([k]) => k);
+    if (on.length) o.flags = on; // 예: ["조식","라운지"] (false인 항목은 아예 싣지 않음)
+    const b = (r.detail || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+    if (b) o.benefits = b;
+    return o;
+  });
 }
 
 // ── 콘텐츠 생성 job 만들기 ────────────────────────────────────────────────────
 // mode: 'generate'(주제 자동 도출) | 'match'(내가 쓴 콘텐츠 매칭) | 'brief'(지시/브리프로 생성)
-function buildContentJob({ topic, count, perTopic, forms, scope, region, form, persona, condition, until, productCodes, productTypes, mode, userTitle, userBody, model, brief, webSearch, bodyMin, bodyMax, regionMode, festival }) {
+function buildContentJob({ topic, count, perTopic, forms, scope, region, form, persona, condition, until, productCodes, productTypes, mode, userTitle, userBody, model, brief, webSearch, bodyMin, bodyMax, regionMode, festival, phase, assignedTopics, shardIndex, shardTotal }) {
   const per = Math.max(1, Number(perTopic) || 1);
   const web = !!webSearch || !!regionMode; // 지역 기반 콘텐츠는 인터넷 검색 필수
   // 사실 근거 + 추측 표기 규칙(모든 생성 모드 공통): 데이터에 없는 구체정보는 검색으로 확인, 못 하면 추측 처리
@@ -753,7 +838,7 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       '3) hotels(매칭 호텔/여행지 중복 제거)도 채운다. form/persona 는 본문 톤에서 추정해 넣는다(모르면 빈 값).',
       '4) output.items 는 정확히 1개. title/body 는 input.userContent 를 그대로 사용.',
       '완료되면 status 를 "done" 으로 바꾸고 output 저장.',
-      'output 형식: { "items": [ { "title": "(사용자 제목)", "body": "(사용자 본문)", "form": "", "persona": "", "hotels": [...], "matched": [ {"productId":"99500","productCode":"2gx2yiq8","hotel":"...","productName":"...","price":123000,"url":"https://...","status":"판매중"} ] } ] }',
+      'output 형식: { "items": [ { "title": "(사용자 제목)", "body": "(사용자 본문)", "form": "", "persona": "", "hotels": [...], "matched": [ {"productId":"99500","productCode":"2gx2yiq8","hotel":"...","productName":"...","price":123000,"status":"판매중"} ] } ] }',
     ].join('\n');
   } else if (mode === 'brief') {
     instructions = [
@@ -771,7 +856,7 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       factRule,
       insLine,
       '5) 완료 시 status "done", output.items 는 정확히 input.count 개.',
-      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "②장면·몰입형", "persona": "", "titleAlternatives": [ {"title":"...","reason":"..."} ], "hotels": [...], "matched": [ {"productId":"99500","productCode":"2gx2yiq8","hotel":"...","productName":"...","price":123000,"url":"https://...","status":"판매중"} ]' + specFmt + ' } ] }',
+      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "②장면·몰입형", "persona": "", "titleAlternatives": [ {"title":"...","reason":"..."} ], "hotels": [...], "matched": [ {"productId":"99500","productCode":"2gx2yiq8","hotel":"...","productName":"...","price":123000,"status":"판매중"} ]' + specFmt + ' } ] }',
     ].filter(Boolean).join('\n');
   } else if (regionMode) {
     const scopeKo = scope === 'overseas' ? '해외' : '국내';
@@ -795,7 +880,44 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       '4) 각 콘텐츠에 titleAlternatives(제목 후보 2~4개, 한 줄 근거) 포함. input.persona 있으면 화자로, input.forms 있으면 어울리는 형으로.',
       insLine,
       '5) 완료 시 status "done", output.items 는 정확히 input.count 개.',
-      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "④팁·정보형", "persona": "", "region": "(대상 지역명)", "titleAlternatives": [ {"title":"...","reason":"..."} ], "hotels": ["(대상 지역명)", "(매칭 호텔들)"], "matched": [ {"productId":"99500","productCode":"2gx2yiq8","hotel":"...","productName":"...","price":123000,"url":"https://...","status":"판매중"} ]' + specFmt + ' } ] }',
+      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "④팁·정보형", "persona": "", "region": "(대상 지역명)", "titleAlternatives": [ {"title":"...","reason":"..."} ], "hotels": ["(대상 지역명)", "(매칭 호텔들)"], "matched": [ {"productId":"99500","productCode":"2gx2yiq8","hotel":"...","productName":"...","price":123000,"status":"판매중"} ]' + specFmt + ' } ] }',
+    ].filter(Boolean).join('\n');
+  } else if (phase === 'plan') {
+    // 1단계: 주제만 도출한다(집필은 2단계에서 샤드로 병렬 처리). 배치 전체의 다양성은 이 단계에서 결정된다.
+    instructions = [
+      '이 요청은 "콘텐츠 주제 기획"입니다(집필은 다음 단계에서 병렬로 진행). 아래 지침대로 주제만 도출해 이 파일을 덮어써 저장하세요.',
+      `0) products 범위: ${scopeDesc}. 이 목록 안에서만 주제를 만든다. products[]의 hotel/region/type/name/price/flags/benefits 를 근거로 삼는다.`,
+      '1) products 를 훑어 서로 다른 주제를 input.count 개 도출(지역/숙소타입/뷰/다이닝/특전/타깃/가격대/계절/테마 등 축을 폭넓게 달리). 실제 상품 없는 주제 금지.',
+      '★★ 2) 주제끼리 훅·각도·타깃·소재가 절대 겹치지 않게 배분한다 — 이 단계가 배치 전체의 다양성을 결정하므로 가장 중요하다. 비슷한 주제를 두 개 만들지 말 것.',
+      '3) 각 주제마다 채운다: topic(주제 한 줄), angle(제목 훅의 방향 — 어떤 유형의 훅으로 갈지 한 줄. 주제마다 서로 다른 훅 유형으로), form(추천 본문 형), productIds(그 주제에 맞는 상품 productId 배열 — 관련 있는 것만 충분히).',
+      webLineGen,
+      insLine,
+      '4) 본문은 쓰지 않는다(집필은 다음 단계). 완료 시 status "done", output.topics 는 정확히 input.count 개.',
+      'output 형식: { "topics": [ { "topic": "...", "angle": "...", "form": "②장면·몰입형", "productIds": ["99500","99501"] } ] }',
+    ].filter(Boolean).join('\n');
+  } else if (phase === 'write') {
+    // 2단계: 기획된 주제 중 배정분만 집필(여러 샤드가 동시에 돈다).
+    instructions = [
+      '이 요청은 "배정된 주제로 콘텐츠 집필"입니다. 주제는 기획 단계에서 이미 정해졌고, 당신은 그중 일부를 맡았습니다. 아래 지침대로 써서 이 파일을 덮어써 저장하세요.',
+      '0) input.assignedTopics 의 주제만 쓴다(주제를 바꾸거나 새로 만들지 말 것). products 에는 이 주제들에 해당하는 상품만 실려 있다.',
+      '1) 각 주제마다 input.perTopic 개 콘텐츠를 쓴다. 같은 주제의 콘텐츠들은 그 주제의 matched 를 공유한다.',
+      '2) 각 주제의 angle(제목 훅 방향)을 따른다 — 배치 전체의 제목 다양성은 기획 단계에서 이미 배분됐으므로, 배정된 angle을 살려서 쓴다. form 은 주제의 form 을 기본으로 하되 input.forms 가 있으면 그에 맞춘다.',
+      '★★ 다양성·품질 (가장 중요 — 유저가 획일적이라고 느끼면 실패):',
+      '  a) 제목은 같은 형이어도 구문·훅·각도를 매번 완전히 다르게. 특정 틀의 반복 절대 금지.',
+      '  b) 본문 형은 "톤 가이드"일 뿐 템플릿이 아니다. 형은 지키되 문장·전개는 자유롭게.',
+      '  c) 숙소/여행지/상품의 "구체적 실체"에 근거해 쓴다: 그 호텔만의 특징(뷰·위치·객실·다이닝·시설·특전), 그 여행지의 매력, 상품의 실제 혜택(products[].flags/benefits/name). 일반론·상투구 금지.',
+      '  d) 읽는 사람이 "가보고 싶다 / 사고 싶다"는 마음이 들도록 호기심과 구체성, 구매 동기를 자연스럽게 녹인다.',
+      `3) 각 콘텐츠: 제목 8~16자, 본문 ${bodyRule}, 친근한 하우스 보이스, 기계적 반복 금지. item.form 에 실제 사용한 형을 적는다. input.persona 있으면 화자로 반영.`,
+      toneRule,
+      priceRule,
+      bodyLenNote,
+      '4) 각 콘텐츠에 matched(productId·productCode 둘 다)와 hotels(중복 제거) 채운다.',
+      '5) 완료 시 status "done", output.items 는 정확히 (assignedTopics 개수 × input.perTopic) 개.',
+      webLineGen ? '※ 인터넷 검색: 주제 발굴은 이미 끝났으니 검색은 "사실 확인" 위주로 쓴다 — 여행지·명물의 유래·수치·현지 이야기를 확인해 정확히 반영(추측·부정확 금지). 필요한 만큼만.' : '',
+      factRule,
+      refLine,
+      insLine,
+      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "④팁·정보형", "persona": "「호텔 사용설명서」", "hotels": [...], "matched": [ {"productId":"99500","productCode":"2gx2yiq8","hotel":"...","productName":"...","price":123000,"status":"판매중"} ]' + specFmt + ' } ] }',
     ].filter(Boolean).join('\n');
   } else {
     instructions = [
@@ -821,17 +943,33 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       factRule,
       refLine,
       insLine,
-      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "④팁·정보형", "persona": "「호텔 사용설명서」", "hotels": [...], "matched": [ {"productId":"99500","productCode":"2gx2yiq8","hotel":"...","productName":"...","price":123000,"url":"https://...","status":"판매중"} ]' + specFmt + ' } ] }',
+      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "④팁·정보형", "persona": "「호텔 사용설명서」", "hotels": [...], "matched": [ {"productId":"99500","productCode":"2gx2yiq8","hotel":"...","productName":"...","price":123000,"status":"판매중"} ]' + specFmt + ' } ] }',
     ].filter(Boolean).join('\n');
   }
   const rulesForJob = { ...CONTENT_RULES, 본문: `${bodyRule}. 무엇이 좋은지 + 왜 이렇게 묶었는지를 고객 상황에서 와닿게. (스튜디오에서 지정한 본문 길이)` };
   if (regionMode) { rulesForJob.상품매칭 = '지역 콘텐츠 — 본문은 지역 중심(상품 나열·광고 금지)이되, matched에는 그 지역과 맞는 판매상품을 최대한 연결(등록 노출용). 억지 매칭 금지, 없으면 빈 배열.'; rulesForJob.주의 = '본문에 가격·할인·예약 문구 금지. 지역 정보(특산물·명물·장점·가야 할 이유·요즘 트렌드)는 인터넷 검색으로 사실 확인.'; }
+  // 슬림화된 products 스키마를 에이전트에 명시(flags가 배열로 바뀌었고 url이 빠졌음)
+  instructions += '\n★ products 스키마(중요): flags 는 "해당되는 혜택 이름만" 담은 배열이다(예: ["조식","라운지"]). '
+    + 'false인 항목은 아예 없으니, 배열에 없으면 그 혜택은 없는 것으로 본다. '
+    + '상품 URL 필드는 없다 — 필요하면 https://mweb.prizm.co.kr/goods/<productCode> 로 만들어 쓴다(출력에는 넣지 말 것).';
+
+  // write 단계는 배정된 주제에 해당하는 상품만 싣는다(샤드당 컨텍스트를 크게 줄여 집필이 빨라진다).
+  let jobProducts;
+  if (phase === 'write') {
+    const want = new Set();
+    (assignedTopics || []).forEach((t) => (t.productIds || []).forEach((id) => want.add(String(id))));
+    const subset = items.filter((r) => want.has(String(r.productId)));
+    jobProducts = compactForJob(subset.length ? subset : items);
+  } else {
+    jobProducts = regionMode ? compactForJob(regionProducts) : compactForJob(items);
+  }
+
   return jobs.createJob('content', {
-    input: { mode: mode || 'generate', topic: topic || '', count: mode === 'match' ? 1 : (Number(count) || (mode === 'brief' ? 1 : 3)), perTopic: (mode === 'match' || mode === 'brief' || regionMode) ? 1 : per, forms: formList, scope, region: region || '', persona: persona || '', condition: cond, until: until || '', productCodes: productCodes || [], productTypes: productTypes || [], model: model === 'sonnet' ? 'sonnet' : 'opus', webSearch: web, bodyMin: bMin, bodyMax: bMax, regionMode: !!regionMode, regions: regionCands || [], festival: !!useFestival, brief: mode === 'brief' ? (brief || '') : '', userContent: mode === 'match' ? { title: userTitle || '', body: userBody || '' } : null },
+    input: { phase: phase || null, assignedTopics: assignedTopics || null, shardIndex: shardIndex == null ? null : shardIndex, shardTotal: shardTotal == null ? null : shardTotal, mode: mode || 'generate', topic: topic || '', count: mode === 'match' ? 1 : (Number(count) || (mode === 'brief' ? 1 : 3)), perTopic: (mode === 'match' || mode === 'brief' || regionMode) ? 1 : per, forms: formList, scope, region: region || '', persona: persona || '', condition: cond, until: until || '', productCodes: productCodes || [], productTypes: productTypes || [], model: model === 'sonnet' ? 'sonnet' : 'opus', webSearch: web, bodyMin: bMin, bodyMax: bMax, regionMode: !!regionMode, regions: regionCands || [], festival: !!useFestival, brief: mode === 'brief' ? (brief || '') : '', userContent: mode === 'match' ? { title: userTitle || '', body: userBody || '' } : null },
     rules: rulesForJob,
     referenceExamples: references,
     productCount: regionMode ? Math.max(1, (regionCands || []).length) : items.length,
-    products: regionMode ? compactForJob(regionProducts) : compactForJob(items),
+    products: jobProducts,
     instructions,
     output: null,
   });
@@ -903,10 +1041,14 @@ const server = http.createServer(async (req, res) => {
       if (!crawl.datasetInfo('domestic') && !crawl.datasetInfo('overseas')) return sendErr(res, 400, '먼저 상품을 불러오세요.');
       if (REF_SHARED && STUDIO_CFG.autoPull !== false) await gitPull(); // 최신 공유 모범 코퍼스로 생성
       if (body.mode === 'match' && !(body.userBody || '').trim()) return sendErr(res, 400, '매칭할 콘텐츠 본문을 입력하세요.');
-      const job = buildContentJob(body);
+      // 일반 생성이고 편수가 많으면 plan→write 샤딩으로 병렬 처리(그 외는 기존 단일 job 그대로)
+      const cnt = Number(body.count) || 0;
+      const shardable = (!body.mode || body.mode === 'generate') && !body.regionMode && cnt >= SHARD_MIN_COUNT;
+      const job = buildContentJob(shardable ? { ...body, phase: 'plan' } : body);
       if (!job.productCount) return sendErr(res, 400, '조건에 맞는 상품이 없습니다. 조건/선택을 확인하세요.');
-      const auto = dispatchToClaude(job.id, 'content');
-      return sendJson(res, 200, { jobId: job.id, productCount: job.productCount, auto });
+      const auto = dispatchToClaude(job.id, shardable ? 'content(plan)' : 'content');
+      if (shardable) watchPlanAndFanOut(job.id, body);
+      return sendJson(res, 200, { jobId: job.id, productCount: job.productCount, auto, sharded: shardable, shards: shardable ? shardCountFor(cnt) : 1 });
     }
     // 상품 선택 UI용: 필터 옵션(호텔/여행지·종류) + 전체 상품(경량)
     if (p === '/api/products/pick') {
@@ -917,7 +1059,43 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/content/job') {
       const job = jobs.readJob(q.get('id'));
       if (!job) return sendErr(res, 404, 'job 없음');
-      return sendJson(res, 200, { id: job.id, status: job.status, input: job.input, items: (job.output && job.output.items) || null, usage: job.usage || null });
+      const sumUsage = (list) => {
+        const us = list.filter(Boolean);
+        if (!us.length) return null;
+        return {
+          model: us[0].model,
+          inputTokens: us.reduce((a, u) => a + (u.inputTokens || 0), 0),
+          cacheReadTokens: us.reduce((a, u) => a + (u.cacheReadTokens || 0), 0),
+          cacheCreateTokens: us.reduce((a, u) => a + (u.cacheCreateTokens || 0), 0),
+          outputTokens: us.reduce((a, u) => a + (u.outputTokens || 0), 0),
+          costUsd: us.reduce((a, u) => a + (u.costUsd || 0), 0),
+          // 샤드는 동시에 도니 벽시계 시간은 "기획 + 가장 오래 걸린 샤드"로 본다
+          durationMs: (us[0].durationMs || 0) + Math.max(0, ...us.slice(1).map((u) => u.durationMs || 0)),
+        };
+      };
+      // 샤딩된 생성: plan job이 자식 write job들을 들고 있다 → 합쳐서 하나처럼 응답
+      const shardIds = (job.output && job.output.shardJobs) || null;
+      if (shardIds && shardIds.length) {
+        const kids = shardIds.map((id) => jobs.readJob(id)).filter(Boolean);
+        const failed = kids.find((k) => k.status === 'failed');
+        const doneKids = kids.filter((k) => k.status === 'done');
+        const allDone = kids.length === shardIds.length && doneKids.length === shardIds.length;
+        const items = allDone ? doneKids.reduce((a, k) => a.concat((k.output && k.output.items) || []), []) : null;
+        return sendJson(res, 200, {
+          id: job.id, status: failed ? 'failed' : (allDone ? 'done' : 'running'), input: job.input, items,
+          usage: allDone ? sumUsage([job.usage, ...kids.map((k) => k.usage)]) : null,
+          error: failed ? (failed.error || '샤드 처리 실패') : null,
+          progress: { phase: 'write', done: doneKids.length, total: shardIds.length },
+        });
+      }
+      // 아직 기획 단계(샤드 생성 전)면 진행 상태를 알려준다
+      const planning = job.input && job.input.phase === 'plan' && job.status !== 'failed';
+      return sendJson(res, 200, {
+        id: job.id, status: job.status, input: job.input,
+        items: (job.output && job.output.items) || null, usage: job.usage || null,
+        error: job.error || null,
+        progress: planning ? { phase: 'plan', done: 0, total: 0 } : null,
+      });
     }
     // 최근 생성 잡 목록(새로고침/재접속 후 결과 복원용)
     if (p === '/api/content/recent') {
@@ -1416,13 +1594,38 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`\n▶ PRIZM 콘텐츠 스튜디오: http://localhost:${PORT}`);
-  console.log(`  NAS: ${nasCfg ? `${nasCfg.host}:${nasCfg.port || 5000} (읽기 전용)` : '미설정'}`);
-  console.log(`  콘텐츠/이미지 AI: ${AUTO_CLAUDE ? `자동 호출 ON (${CLAUDE_BIN}, --model opus)` : '수동(문구 붙여넣기)'} · API키 불필요`);
-  if (REF_SHARED) {
-    console.log(`  모범 콘텐츠: 공유 저장소 ${REF_DIR} · 담당자 ${loadCurators().length}명 · 나(${currentUser()})=${isCurator() ? '등록가능' : '읽기전용'}`);
-    if (STUDIO_CFG.autoPull !== false) gitPull().then((ok) => console.log(`  모범 코퍼스 동기화: ${ok ? '최신' : '실패(오프라인?)'}`));
+
+let startFailed = false;
+
+// ── 포트 충돌 ────────────────────────────────────────────────────────────────
+// ⚠️ 이 핸들러가 없으면 EADDRINUSE 가 위쪽 uncaughtException 에 삼켜져서, listen 도
+//    못 한 채 프로세스만 살아 있는다. 브라우저는 옛 서버에 붙고 사용자는 왜 새 기능이
+//    안 먹는지 알 길이 없다(2026-09-07 좀비 서버 사고). 조용히 죽지 말 것.
+server.on('error', (e) => {
+  startFailed = true;
+  if (e.code === 'EADDRINUSE') {
+    console.error(`\n❌ 포트 ${PORT} 이 이미 사용 중입니다. PRIZM 콘텐츠 스튜디오를 시작하지 못했습니다.`);
+    console.error(`   이미 떠 있는 창이 있는지 보세요 → http://localhost:${PORT}`);
+    console.error(`   누가 쓰는지 확인:  lsof -nP -iTCP:${PORT} -sTCP:LISTEN`);
+    console.error(`   다른 포트로 띄우려면:  PORT=8795 node ./server.js\n`);
+  } else {
+    console.error('서버 오류:', e.message);
   }
-  console.log('');
+  process.exit(1);
+});
+
+server.listen(PORT, '127.0.0.1', () => {
+  // ⚠️ macOS 는 포트가 물려 있어도 'listening' 콜백을 **먼저** 부르고 그 다음에
+  //    error 를 준다(2026-09-22 실측). 한 틱 미뤄서 error 가 안 왔을 때만 알린다.
+  setImmediate(() => {
+    if (startFailed) return;
+    console.log(`\n▶ PRIZM 콘텐츠 스튜디오: http://localhost:${PORT}`);
+    console.log(`  NAS: ${nasCfg ? `${nasCfg.host}:${nasCfg.port || 5000} (읽기 전용)` : '미설정'}`);
+    console.log(`  콘텐츠/이미지 AI: ${AUTO_CLAUDE ? `자동 호출 ON (${CLAUDE_BIN}, --model opus)` : '수동(문구 붙여넣기)'} · API키 불필요`);
+    if (REF_SHARED) {
+      console.log(`  모범 콘텐츠: 공유 저장소 ${REF_DIR} · 담당자 ${loadCurators().length}명 · 나(${currentUser()})=${isCurator() ? '등록가능' : '읽기전용'}`);
+      if (STUDIO_CFG.autoPull !== false) gitPull().then((ok) => console.log(`  모범 코퍼스 동기화: ${ok ? '최신' : '실패(오프라인?)'}`));
+    }
+    console.log('');
+  });
 });
