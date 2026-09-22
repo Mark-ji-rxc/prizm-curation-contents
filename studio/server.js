@@ -1552,7 +1552,10 @@ const server = http.createServer(async (req, res) => {
       const officeCfg = require('./_officecfg');
       let playwrightOk = false; try { require.resolve('playwright'); playwrightOk = true; } catch {}
       const off = officeCfg.envConfig(q.get('target')); // stage(기본)|prod
-      return sendJson(res, 200, { playwrightOk, sessionOk: fs.existsSync(off.sessionFile), baseUrl: off.baseUrl, env: off.env });
+      // 파일 존재만 보면 "만료된 세션"이 통과해 발행 도중에 실패한다 → 토큰 만료까지 확인
+      const si = require('./office-posts').sessionInfo(q.get('target'));
+      const sessionOk = !!si.exists && !si.expired;
+      return sendJson(res, 200, { playwrightOk, sessionOk, sessionExists: !!si.exists, expired: !!si.expired, expiresInMs: si.expiresInMs == null ? null : si.expiresInMs, baseUrl: off.baseUrl, env: off.env });
     }
     // 백오피스 게시글 목록(캘린더용) — 환경(stage/prod)별 60초 캐시. force=1이면 갱신
     if (p === '/api/office/posts' && req.method === 'GET') {

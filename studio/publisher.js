@@ -11,7 +11,7 @@ const DOMAIN_RADIO = { common: 'NONE', domestic: 'DOMESTIC', overseas: 'INTERNAT
 async function publishItem(item, stagedFiles, customImages) {
   const OFF = CFG.envConfig(item && item.target); // stage(기본) | prod
   const envKo = OFF.env === 'prod' ? '프로덕션' : '스테이지';
-  if (!fs.existsSync(OFF.sessionFile)) throw new Error(`${envKo} 로그인 세션 없음 — 터미널에서 \`node publish-login.js${OFF.env === 'prod' ? ' prod' : ''}\` 로 로그인하세요.`);
+  if (!fs.existsSync(OFF.sessionFile)) throw new Error(`${envKo} 로그인 세션 없음 — ⑥ 등록 화면의 [스튜디오에서 바로 로그인] 버튼으로 로그인하세요. (터미널을 쓰려면 \`node publish-login.js${OFF.env === 'prod' ? ' prod' : ''}\`)`);
   const browser = await chromium.launch({ headless: OFF.headless });
   const log = [];
   const step = (m) => { log.push(m); console.log('[publish]', m); };
@@ -26,7 +26,7 @@ async function publishItem(item, stagedFiles, customImages) {
     const loggedOut = (await page.locator('input[type=email]').count()) > 0;
     await page.getByPlaceholder('쇼룸 검색').first().waitFor({ timeout: 8000 }).catch(() => {});
     const formReady = (await page.getByPlaceholder('쇼룸 검색').count()) > 0;
-    if (loggedOut || !formReady) throw new Error(`${envKo} 세션 만료/미로그인 — 터미널에서 \`node publish-login.js${OFF.env === 'prod' ? ' prod' : ''}\` 로 로그인하세요.`);
+    if (loggedOut || !formReady) throw new Error(`${envKo} 세션 만료/미로그인 — ⑥ 등록 화면의 [스튜디오에서 바로 로그인] 버튼으로 다시 로그인하세요. (터미널을 쓰려면 \`node publish-login.js${OFF.env === 'prod' ? ' prod' : ''}\`)`);
 
     // 1) 발행 도메인
     const domVal = DOMAIN_RADIO[item.domain] || 'NONE';

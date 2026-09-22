@@ -1267,7 +1267,8 @@ async function runPublish(it) {
   let office = {}; try { office = await api('/api/publish/office-status?target=' + target); } catch {}
   if (!office.playwrightOk) return alert('Playwright가 설치되지 않았습니다.\n터미널에서:\n  npm i playwright && npx playwright install chromium');
   if (!office.sessionOk) {
-    if (!confirm(envKo + ' 백오피스 로그인 세션이 없습니다.\n지금 스튜디오에서 바로 로그인할까요?\n(확인 → 브라우저가 열립니다. ' + envKo + ' 계정으로 로그인만 하면 자동 완료돼요)')) return;
+    const why = office.expired ? '로그인 세션이 만료됐습니다' : '백오피스 로그인 세션이 없습니다';
+    if (!confirm(envKo + ' ' + why + '.\n지금 스튜디오에서 바로 로그인할까요?\n(확인 → 브라우저가 열립니다. ' + envKo + ' 계정으로 로그인만 하면 자동 완료돼요)')) return;
     const b = $('#notionBanner'); if (b) b.classList.remove('hidden');
     const ok = await runOfficeLogin(target, b);
     if (!ok) return;
@@ -1391,7 +1392,7 @@ async function loadCalendar(force) {
   if (calState.posts === null || force) {
     body.innerHTML = '<div class="muted sm">불러오는 중…</div>';
     try { const r = await api('/api/office/posts?target=' + calState.target + (force ? '&force=1' : '')); calState.posts = r.posts || []; }
-    catch (e) { body.innerHTML = `<div class="cal-err">게시글을 불러오지 못했습니다: ${esc(e.message)}<br><span class="muted sm">세션이 만료됐다면 터미널에서 <code>node publish-login.js</code> 로 다시 로그인하세요.</span></div>`; return; }
+    catch (e) { body.innerHTML = `<div class="cal-err">게시글을 불러오지 못했습니다: ${esc(e.message)}<br><span class="muted sm">세션이 만료됐다면 위 배너의 [스튜디오에서 바로 로그인] 버튼으로 다시 로그인하세요.</span></div>`; return; }
   }
   renderCalendar();
 }

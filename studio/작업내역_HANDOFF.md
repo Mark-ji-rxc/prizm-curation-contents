@@ -128,6 +128,9 @@ PRIZM 콘텐츠 제작 전 과정( **크롤링 → 콘텐츠 생성 → 상품 �
 
 ## 변경 이력
 
+- **2026-09-22 (발행 세션 만료 감지 버그 수정 — 터미널 안내 대신 [바로 로그인]으로)**: 발행 시 '프로덕션 세션 만료/미로그인 — 터미널에서 `node publish-login.js prod` 로 로그인하세요' 메시지가 뜨는 문제. **원인**: `/api/publish/office-status`가 `sessionOk: fs.existsSync(sessionFile)` — **파일 존재만** 확인하고 **토큰 만료를 보지 않았다**. 그래서 만료된 세션이 'OK'로 통과돼 클라이언트의 [스튜디오에서 바로 로그인] 분기를 건너뛰고, publisher가 실행 중 만료를 발견해 터미널 안내 에러를 던졌다. **수정**: office-status가 `sessionInfo()`로 만료까지 판정(`sessionOk = exists && !expired`)하고 `sessionExists`/`expired`/`expiresInMs`를 함께 반환. 클라이언트는 '없음'과 '만료'를 구분해 안내. publisher·캘린더의 안내 문구도 터미널 명령 대신 **[스튜디오에서 바로 로그인] 버튼**을 안내하도록 변경(터미널은 괄호로 병기). **검증**: 수정 후 prod·stage 모두 `sessionOk:false, expired:true`로 정확히 감지. Playwright 헤드리스·헤드풀(창 뜨는 모드, 로그인에 사용) 둘 다 기동 확인.
+
+
 - **2026-09-22 (발행 불가 + NAS 이미지 로딩 불가 해결)**: 두 가지 장애. ① **발행 실패** — Playwright가 업데이트되면서 스튜디오의 playwright 1.62.1이 요구하는 브라우저 빌드(1234)가 캐시에 없었다(설치된 건 1243). 증상: 발행 실행 시 'Looks like Playwright was just installed or updated' 알림. 조치: `cd studio && npx playwright install chromium` → chromium-1234 / chromium_headless_shell-1234 설치, 헤드리스 기동 확인. ② **NAS 로그인 실패(code=402)** — 이미지 불러오기가 전부 막힘. 원인은 계정이 아니라 **세션명**이었다 — server.js가 이미지피커와 SID를 서로 끊지 않게 하려고 임의 세션명 `PrizmStudio`를 썼는데, DSM은 **등록된 앱 세션명만** 허용해 402(permission denied)로 거부한다(실측: FileStation ✅ / PrizmStudio ❌ / DownloadStation ❌). 조치: 기본 세션명을 `FileStation`으로 변경. SID가 서로 끊겨도 synology.js가 무효 코드(105/106/107/119)를 감지해 자동 재로그인·재시도하므로 안전. 검증: 공유폴더 목록·호텔 이미지 7장 조회·썰네일(HTTP 200, jpeg) 정상. ※ 이번 점검에서 백오피스 세션은 stage·prod **둘 다 만료** 상태였다 — 발행 전 [스튜디오에서 바로 로그인] 필요(Playwright 복구로 이제 동작).
 
 
