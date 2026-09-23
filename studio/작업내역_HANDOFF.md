@@ -128,6 +128,11 @@ PRIZM 콘텐츠 제작 전 과정( **크롤링 → 콘텐츠 생성 → 상품 �
 
 ## 변경 이력
 
+- **2026-09-23 (④ 이미지 찾기 로딩 속도 — NAS 탐색 병렬화)**: 탭 진입이 너무 느리다는 요청. **실측 분해**: `/api/images` 11.2초 = 폴더 검색 8.2초 + 이미지 목록 2.65초. 썰네일은 문제 없음(콜드 104ms/캐시 15ms, 캐시 7002개·919MB). 폴더 검색 8.2초를 다시 쪼개니 `collectRootCandidates`가 아니라 **`walkToImageDir` 7.2초**가 범인이었고, 그 안에서 `_findLowResDir`(4.99초) + `_hasImagesRecursive`(2.09초)가 대부분. **근본 원인**: 이 함수들이 모두 폴더를 **한 개씩 순차 await** 해서 NAS 왕복 지연(호출당 40~400ms)이 폴더 수만큼 그대로 쌓임. (NAS 자체는 동시 요청을 처리함 — 8회 동시 실측 3.2배 이득) **조치**(image-picker/synology.js, 이미지피커와 공유): 공통 헬퍼 `_listMany(paths, opts, concurrency=8)` 신설 후 `listImagesRecursive`·`collectRootCandidates`·`_findLowResDir`·`_hasImagesRecursive`를 **청크 단위 병렬 BFS**로 전환. ⚠️ 레벨 전체를 한꺼번에 가져오면 cap(600장) 도달 후에도 계속 훑어 호출이 64→266회로 느는다 — 반드시 **청크(8개)마다 cap을 확인**해 조기 종료를 살려야 함. 결과 순서(BFS)도 그대로 유지. **결과**: `/api/images` 캐시 미스 11.2→5.8초, 캐시 적중 2.7→2.0초 (600장·동일 폴더로 결과 같음 확인). **남은 개선안**(미적용): ① 폴더별 이미지 목록을 TTL 캐시하면 재진입이 즉시 ② 첫 응답을 먼저 내려 점진적 렌더링 ③ concurrency 상향(8→12).
+
+- **2026-09-23 (확인: 상품 직접 선택 시 범위 제한은 이미 정상)**: '지정한 상품만 읽게 해달라'는 요청으로 점검했으나 **이미 그렇게 동작**한다. `pickProducts()`가 `productCodes`가 오면 그 상품만 반환하고, 클라이언트도 `b.productCodes = [...pickCodes]`로 전송(단, 지역기반콘텐츠 모드에선 의도적으로 무시). 실측(상품 2개 선택): productCount=2, products 배열 2건, job 파일 **26.6KB**(전체일 땐 556KB), 지시문도 '직접 선택한 상품 2개 한정'으로 나간다. 추가 수정 없음.
+
+
 - **2026-09-22 (발행 세션 만료 감지 버그 수정 — 터미널 안내 대신 [바로 로그인]으로)**: 발행 시 '프로덕션 세션 만료/미로그인 — 터미널에서 `node publish-login.js prod` 로 로그인하세요' 메시지가 뜨는 문제. **원인**: `/api/publish/office-status`가 `sessionOk: fs.existsSync(sessionFile)` — **파일 존재만** 확인하고 **토큰 만료를 보지 않았다**. 그래서 만료된 세션이 'OK'로 통과돼 클라이언트의 [스튜디오에서 바로 로그인] 분기를 건너뛰고, publisher가 실행 중 만료를 발견해 터미널 안내 에러를 던졌다. **수정**: office-status가 `sessionInfo()`로 만료까지 판정(`sessionOk = exists && !expired`)하고 `sessionExists`/`expired`/`expiresInMs`를 함께 반환. 클라이언트는 '없음'과 '만료'를 구분해 안내. publisher·캘린더의 안내 문구도 터미널 명령 대신 **[스튜디오에서 바로 로그인] 버튼**을 안내하도록 변경(터미널은 괄호로 병기). **검증**: 수정 후 prod·stage 모두 `sessionOk:false, expired:true`로 정확히 감지. Playwright 헤드리스·헤드풀(창 뜨는 모드, 로그인에 사용) 둘 다 기동 확인.
 
 

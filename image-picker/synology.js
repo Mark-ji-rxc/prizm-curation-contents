@@ -45,6 +45,11 @@ class Synology {
    */
   constructor(cfg) {
     this.cfg = cfg;
+    // DSM 은 같은 계정 + 같은 session 이름으로 다시 로그인하면 앞의 SID 를 무효화할 수
+    // 있다. 이미지 추천기(8787)와 콘텐츠 스튜디오(8790)가 이 파일을 함께 쓰므로,
+    // 둘 다 'FileStation' 으로 붙으면 나중에 뜬 쪽이 앞의 세션을 끊어 106/119 가 난다.
+    // 앱마다 다른 이름을 준다(SYNO_SESSION 으로도 덮어쓸 수 있다).
+    this.session = cfg.session || process.env.SYNO_SESSION || 'FileStation';
     const scheme = cfg.https ? 'https' : 'http';
     const port = cfg.port || (cfg.https ? 5001 : 5000);
     this.base = `${scheme}://${cfg.host}:${port}/webapi`;
@@ -139,7 +144,7 @@ class Synology {
       u.searchParams.set('method', 'login');
       u.searchParams.set('account', this.cfg.user);
       u.searchParams.set('passwd', this.cfg.password);
-      u.searchParams.set('session', 'FileStation');
+      u.searchParams.set('session', this.session);
       u.searchParams.set('format', 'sid');
       if (this.cfg.otp) u.searchParams.set('otp_code', this.cfg.otp);
       const res = await fetch(u, { method: 'GET' });
@@ -236,22 +241,37 @@ class Synology {
       cands.push({ name: s.name, path: s.path, depth: 0, parent: null });
       queue.push({ path: s.path, depth: 0, parent: s.name });
     }
+    // 폴더를 concurrency 개씩 동시에 조회한다. 예전엔 한 폴더씩 순차 await 라서
+    // 트리를 훑는 데 (NAS 왕복 지연 x 폴더 수)가 그대로 쌓였다(실측 196회 8.2초).
     let lists = 0;
+    const concurrency = 8;
     while (queue.length && lists < listCap) {
-      const { path: p, depth, parent } = queue.shift();
-      if (depth >= maxDepth) continue;
-      let children;
-      try {
-        children = await this.list(p, { onlyDirs: true });
-        lists++;
-      } catch {
-        continue;
+      const batch = [];
+      while (queue.length && batch.length < Math.min(concurrency, listCap - lists)) {
+        const item = queue.shift();
+        if (item.depth >= maxDepth) continue;
+        batch.push(item);
       }
-      for (const c of children) {
-        if (!c.isdir) continue;
-        if (/^[#.@$]/.test(c.name) || /recycle|appledb|@eaDir/i.test(c.name)) continue; // 시스템/휴지통 제외
-        cands.push({ name: c.name, path: c.path, depth: depth + 1, parent });
-        queue.push({ path: c.path, depth: depth + 1, parent: c.name });
+      if (!batch.length) continue;
+      const results = new Array(batch.length);
+      let idx = 0;
+      await Promise.all(Array.from({ length: Math.min(concurrency, batch.length) }, async () => {
+        while (idx < batch.length) {
+          const cur = idx++;
+          try { results[cur] = await this.list(batch[cur].path, { onlyDirs: true }); } catch { results[cur] = null; }
+        }
+      }));
+      for (let i = 0; i < batch.length; i++) {
+        const children = results[i];
+        if (!children) continue;
+        lists++;
+        const { depth, parent } = batch[i];
+        for (const c of children) {
+          if (!c.isdir) continue;
+          if (/^[#.@$]/.test(c.name) || /recycle|appledb|@eaDir/i.test(c.name)) continue; // 시스템/휴지통 제외
+          cands.push({ name: c.name, path: c.path, depth: depth + 1, parent });
+          queue.push({ path: c.path, depth: depth + 1, parent: c.name });
+        }
       }
     }
     // 점수화 + 부모폴더 힌트 보정(콘텐츠 폴더 우대 / 쇼룸·디자인 등 감점)
@@ -318,6 +338,20 @@ class Synology {
   }
 
   /** 앵커 아래에서 저해상/저용량/웹용/1280 등 이름의 폴더를 BFS로 찾음(가장 얕은 것 우선). */
+  // 여러 폴더를 동시에 조회(NAS 왕복 지연이 폴더 수만큼 쌓이는 걸 막는다).
+  // 실패한 폴더는 null 로 채워 인덱스를 보존한다.
+  async _listMany(paths, opts = {}, concurrency = 8) {
+    const out = new Array(paths.length);
+    let idx = 0;
+    await Promise.all(Array.from({ length: Math.min(concurrency, paths.length) }, async () => {
+      while (idx < paths.length) {
+        const cur = idx++;
+        try { out[cur] = await this.list(paths[cur], opts); } catch { out[cur] = null; }
+      }
+    }));
+    return out;
+  }
+
   async _findLowResDir(startPath, maxDepth = 5) {
     const re = /저\s?해상|저해상도|저용량|웹용|웹\b|web|low\s?res|lowres|\blow\b|small|1280|1920|1024|960|압축|thumb|썸네일/i;
     const badRe = /사용\s?x|사용안함|미사용|안씀|쓰지|do\s?not|deprecated|old|구버전|이전버전|원본|raw|backup|복제|test|임시/i;
@@ -326,14 +360,18 @@ class Synology {
     const hits = [];
     let visited = 0;
     while (queue.length && visited < 120) {
-      const { p, d } = queue.shift();
-      visited++;
-      let files;
-      try { files = await this.list(p, { onlyDirs: true }); } catch { continue; }
-      for (const f of files) {
-        if (!f.isdir || skipRe.test(f.name)) continue;
-        if (re.test(f.name)) hits.push({ path: f.path, name: f.name, depth: d + 1, bad: badRe.test(f.name) ? 1 : 0 });
-        if (d < maxDepth) queue.push({ p: f.path, d: d + 1 });
+      const batch = queue.splice(0, Math.min(8, 120 - visited));
+      visited += batch.length;
+      const results = await this._listMany(batch.map((b) => b.p), { onlyDirs: true });
+      for (let i = 0; i < batch.length; i++) {
+        const files = results[i];
+        if (!files) continue;
+        const { d } = batch[i];
+        for (const f of files) {
+          if (!f.isdir || skipRe.test(f.name)) continue;
+          if (re.test(f.name)) hits.push({ path: f.path, name: f.name, depth: d + 1, bad: badRe.test(f.name) ? 1 : 0 });
+          if (d < maxDepth) queue.push({ p: f.path, d: d + 1 });
+        }
       }
     }
     if (!hits.length) return null;
@@ -342,14 +380,9 @@ class Synology {
     const clean = hits.filter((h) => !h.bad);
     const pool = clean.length ? clean : hits;
     pool.sort((a, b) => a.depth - b.depth);
-    for (const h of pool.slice(0, 6)) {
-      try {
-        const kids = await this.list(h.path, { onlyDirs: true });
-        h.childDirs = kids.filter((k) => k.isdir).length;
-      } catch {
-        h.childDirs = 0;
-      }
-    }
+    const top = pool.slice(0, 6);
+    const kidsList = await this._listMany(top.map((h) => h.path), { onlyDirs: true });
+    top.forEach((h, i) => { h.childDirs = kidsList[i] ? kidsList[i].filter((k) => k.isdir).length : 0; });
     const withKids = pool.filter((h) => (h.childDirs || 0) >= 2);
     if (withKids.length) {
       withKids.sort((a, b) => b.childDirs - a.childDirs || a.depth - b.depth);
@@ -364,13 +397,17 @@ class Synology {
     const queue = [{ p: startPath, d: 0 }];
     let visited = 0;
     while (queue.length && visited < 120) {
-      const { p, d } = queue.shift();
-      visited++;
-      let files;
-      try { files = await this.list(p); } catch { continue; }
-      for (const f of files) {
-        if (!f.isdir && isImage(f.name)) return true;
-        if (f.isdir && d < maxDepth) queue.push({ p: f.path, d: d + 1 });
+      const batch = queue.splice(0, Math.min(8, 120 - visited));
+      visited += batch.length;
+      const results = await this._listMany(batch.map((b) => b.p));
+      for (let i = 0; i < batch.length; i++) {
+        const files = results[i];
+        if (!files) continue;
+        const { d } = batch[i];
+        for (const f of files) {
+          if (!f.isdir && isImage(f.name)) return true; // 하나라도 찾으면 즉시 종료
+          if (f.isdir && d < maxDepth) queue.push({ p: f.path, d: d + 1 });
+        }
       }
     }
     return false;
@@ -503,28 +540,44 @@ class Synology {
    * 파일명이 무의미해도(예: _MG_6172.jpg) 키워드/추천에 쓸 수 있게 한다.
    * BFS라 얕은 폴더 이미지가 먼저 담긴다. cap으로 과다 수집 방지.
    */
-  async listImagesRecursive(root, { maxDepth = 3, cap = 600 } = {}) {
+  // 폴더를 "깊이 단위로 묶어 동시에" 조회한다. 예전엔 한 폴더씩 순차로 await 해서
+  // 폴더가 수십 개면 (NAS 왕복 지연 x 폴더 수)만큼 그대로 쌓였다(실측 64회 2.6초).
+  // 결과 순서는 기존 BFS와 동일하게 유지한다(갤러리 정렬이 바뀌지 않도록).
+  async listImagesRecursive(root, { maxDepth = 3, cap = 600, concurrency = 8 } = {}) {
     const out = [];
     const queue = [{ p: root, d: 0 }];
     let visited = 0;
+    // 큐를 concurrency 개씩 끊어 동시에 조회한다. 청크마다 cap을 확인해 "필요한 만큼만" 훑는다
+    // (레벨 전체를 한꺼번에 가져오면 600장을 채운 뒤에도 폴더를 계속 뒤져 호출이 4배로 늘었다).
     while (queue.length && out.length < cap && visited < 300) {
-      const { p, d } = queue.shift();
-      visited++;
-      let files;
-      try { files = await this.list(p); } catch { continue; }
-      const folder = p.split('/').pop();
-      for (const f of files) {
-        if (f.isdir) {
-          if (d < maxDepth && !/^[#.@$]|@eaDir/i.test(f.name)) queue.push({ p: f.path, d: d + 1 });
-        } else if (isImage(f.name)) {
-          out.push({
-            name: f.name,
-            path: f.path,
-            folder,
-            size: f.additional && f.additional.size,
-            mtime: f.additional && f.additional.time && f.additional.time.mtime,
-          });
-          if (out.length >= cap) break;
+      const batch = queue.splice(0, Math.min(concurrency, 300 - visited));
+      visited += batch.length;
+      const results = new Array(batch.length);
+      let idx = 0;
+      await Promise.all(Array.from({ length: Math.min(concurrency, batch.length) }, async () => {
+        while (idx < batch.length) {
+          const cur = idx++;
+          try { results[cur] = await this.list(batch[cur].p); } catch { results[cur] = null; }
+        }
+      }));
+      for (let i = 0; i < batch.length; i++) {
+        const files = results[i];
+        if (!files) continue;
+        const { p, d } = batch[i];
+        const folder = p.split('/').pop();
+        for (const f of files) {
+          if (f.isdir) {
+            if (d < maxDepth && !/^[#.@$]|@eaDir/i.test(f.name)) queue.push({ p: f.path, d: d + 1 });
+          } else if (isImage(f.name)) {
+            if (out.length >= cap) break;
+            out.push({
+              name: f.name,
+              path: f.path,
+              folder,
+              size: f.additional && f.additional.size,
+              mtime: f.additional && f.additional.time && f.additional.time.mtime,
+            });
+          }
         }
       }
     }
