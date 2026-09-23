@@ -543,7 +543,15 @@ class Synology {
   // 폴더를 "깊이 단위로 묶어 동시에" 조회한다. 예전엔 한 폴더씩 순차로 await 해서
   // 폴더가 수십 개면 (NAS 왕복 지연 x 폴더 수)만큼 그대로 쌓였다(실측 64회 2.6초).
   // 결과 순서는 기존 BFS와 동일하게 유지한다(갤러리 정렬이 바뀌지 않도록).
-  async listImagesRecursive(root, { maxDepth = 3, cap = 600, concurrency = 8 } = {}) {
+  // ⛔ 캐시는 전부 이 프로세스 메모리에만 둔다. NAS에는 아무것도 쓰지 않는다(읽기 전용).
+  //    같은 폴더를 다시 열 때 NAS를 다시 훑지 않도록 TTL 동안 결과를 재사용한다.
+  async listImagesRecursive(root, { maxDepth = 3, cap = 600, concurrency = 8, ttlMs = 10 * 60 * 1000, useCache = true } = {}) {
+    const cacheKey = `${root}|${maxDepth}|${cap}`;
+    if (!this._imgListCache) this._imgListCache = new Map();
+    if (useCache && ttlMs > 0) {
+      const hit = this._imgListCache.get(cacheKey);
+      if (hit && Date.now() - hit.at < ttlMs) return hit.images.slice(); // 호출자가 배열을 바꿔도 캐시가 오염되지 않게 복사
+    }
     const out = [];
     const queue = [{ p: root, d: 0 }];
     let visited = 0;
@@ -580,6 +588,10 @@ class Synology {
           }
         }
       }
+    }
+    if (ttlMs > 0) {
+      this._imgListCache.set(cacheKey, { at: Date.now(), images: out.slice() });
+      if (this._imgListCache.size > 50) this._imgListCache.delete(this._imgListCache.keys().next().value); // 메모리 상한
     }
     return out;
   }

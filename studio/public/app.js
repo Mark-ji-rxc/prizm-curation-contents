@@ -897,6 +897,8 @@ let imgTargets = [];
 let currentTarget = null;
 let uploadedImages = []; // 내가 업로드한 이미지(NAS 아님, path='upload:<id>')
 $('#imgHotelSelect').addEventListener('change', (e) => loadTarget(+e.target.value));
+// NAS 목록은 10분간 캐시된다(재진입이 즉시) → 새 이미지를 올린 직후엔 이 버튼으로 강제 갱신
+$('#imgRefresh') && ($('#imgRefresh').onclick = () => { if (currentTarget) loadImages(currentTarget, true); });
 $('#imgFilter').addEventListener('input', () => renderGallery());
 async function loadUploads() { try { const { images } = await api('/api/uploads'); uploadedImages = images || []; renderGallery(); } catch {} }
 // 파일 목록 → 로컬 업로드(내 PC → studio/uploads, NAS 아님). 버튼 선택·드래그앤드롭 공용
@@ -926,11 +928,12 @@ $('#imgUpload').onchange = async (e) => { await uploadFiles(e.target.files); e.t
   zone.addEventListener('drop', async (e) => { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; zone.classList.remove('drag-over'); if (hint) hint.hidden = true; if (e.dataTransfer.files && e.dataTransfer.files.length) await uploadFiles(e.dataTransfer.files); });
 })();
 function loadTarget(i) { currentTarget = imgTargets[i]; if (currentTarget) loadImages(currentTarget); }
-async function loadImages(target) {
-  const meta = $('#imgMeta'); meta.textContent = '불러오는 중…'; recPicks = null; // 선택 이미지는 폴더 전환에도 유지
+async function loadImages(target, fresh) {
+  const meta = $('#imgMeta'); meta.textContent = fresh ? 'NAS에서 다시 읽는 중…' : '불러오는 중…'; recPicks = null; // 선택 이미지는 폴더 전환에도 유지
   const hotel = target.hotel || target;
   try {
-    const qs = target.code ? `productCode=${encodeURIComponent(target.code)}&hotel=${encodeURIComponent(hotel)}` : `hotel=${encodeURIComponent(hotel)}`;
+    let qs = target.code ? `productCode=${encodeURIComponent(target.code)}&hotel=${encodeURIComponent(hotel)}` : `hotel=${encodeURIComponent(hotel)}`;
+    if (fresh) qs += '&fresh=1'; // 목록 캐시를 무시하고 NAS를 다시 훑는다
     const d = await api('/api/images?' + qs);
     galleryImages = (d.images || []).map((im) => ({ ...im, hotel }));
     const modeTag = d.mode === 'overseas' ? '해외' : d.mode === 'overseas-country' ? '해외(나라전체)' : d.mode === 'overseas-hotel' ? '해외호텔' : '';

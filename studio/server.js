@@ -999,7 +999,7 @@ async function resolveProductImages(prod, { fresh }) {
   }
   // 국내 또는 해외 호텔식(카드에 이모지 혜택) → 국내와 동일하게 호텔명으로 해석
   const resolved = await syno.resolveHotelImageDir(prod.hotel, { useCache: !fresh });
-  const images = await syno.listImagesRecursive(resolved.imageDir);
+  const images = await syno.listImagesRecursive(resolved.imageDir, { useCache: !fresh });
   return { ...resolved, mode: prod.source === 'overseas' ? 'overseas-hotel' : 'domestic', count: images.length, images };
 }
 
@@ -1312,7 +1312,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (!hotel) return sendErr(res, 400, 'hotel 또는 productCode 필요');
       const resolved = await syno.resolveHotelImageDir(hotel, { useCache: !fresh && !root, root });
-      const images = await syno.listImagesRecursive(resolved.imageDir);
+      const images = await syno.listImagesRecursive(resolved.imageDir, { useCache: !fresh });
       return sendJson(res, 200, { ...resolved, mode: 'domestic', count: images.length, images });
     }
     if (p === '/api/candidates') {
@@ -1333,7 +1333,7 @@ const server = http.createServer(async (req, res) => {
       if (!requireSyno(res)) return;
       const dirPath = q.get('path');
       if (!dirPath) return sendErr(res, 400, 'path 필요');
-      const images = await syno.listImagesRecursive(dirPath);
+      const images = await syno.listImagesRecursive(dirPath, { useCache: q.get('fresh') !== '1' });
       return sendJson(res, 200, { path: dirPath, count: images.length, images });
     }
     // 업로드 이미지 목록 / 업로드
