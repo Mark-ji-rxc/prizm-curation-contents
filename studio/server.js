@@ -562,6 +562,7 @@ const CONTENT_RULES = {
   본문형: ['①후기·고백형', '②장면·몰입형', '③반전·통념깨기형', '④팁·정보형', '⑤단정·선언형', '⑥조건·타깃지목형', '⑦질문·대화형', '⑧비교·대조형', '⑨숫자·근거형', '⑩큐레이터편지형'],
   가격언급: '가격·할인율·최저가는 모든 콘텐츠에 넣지 않는다. 그게 핵심 훅인 형(⑨숫자·근거형·⑧비교·대조형·⑥조건·타깃지목형의 가성비)에서만. 감성·경험형(①후기·고백·②장면·몰입·⑦질문·대화·⑩큐레이터편지·③반전·통념깨기)은 가격·할인 언급 없이 장면·감정·경험 중심. 본문이 길어져도 습관적 가격 문장 금지.',
   상품매칭: '각 콘텐츠는 주제 조건에 맞는 판매중 상품 "전체"를 매칭한다(대표 1~2개만 X). 호텔명 — 상품명 형식. 판매예정/매진 표기.',
+  판매상태언급: '판매예정·매진·오픈런 등 판매 상태는 제목·본문에 쓰지 않는다. 작성 시점에 판매예정이어도 게재 시점엔 판매중일 수 있어서다. "곧 판매"·"오픈 예정"·"사전예약"·"매진"·"마감 임박" 같은 표현과 판매 시작일 안내 금지.',
   주의: '실제 상품이 존재하는 주제만. 여행지 소개는 사실확인 후 출처 표기.',
 };
 const THEME_PRESETS = {
@@ -792,6 +793,8 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
   const factRule = '★ 사실 근거·추측 표기(중요): 숙소의 전망(오션뷰 등)·객실 시설(스파/풀 등)·위치 근접성("~에 가깝다","시내와 가까움") 같은 구체 사실은 products 데이터(상품명·benefits/flags)에 있는 것만 단정한다. 데이터에 없으면 반드시 인터넷 검색(WebSearch)으로 확인 — 확인되면 단정, 확인 안 되면 그 문장은 추측 어투("~인 듯","~라고 해요","아마")로 쓰고 그 문장 "원문 그대로"를 output.speculative 배열에 담는다. 검색 자체를 못 하는 상황이면 불확실한 구체정보는 아예 쓰지 말 것. 근거 없는 허위·과장 금지.';
   const specFmt = ', "speculative": ["(추측성으로 쓴 문장 원문, 없으면 생략/빈배열)"]';
   const priceRule = '★ 가격 언급 절제(편성 다양성 필수): 모든 콘텐츠에 가격·할인율·최저가를 넣지 말 것. 가격은 그게 진짜 핵심 훅일 때만 — ⑨숫자·근거형, ⑧비교·대조형, ⑥조건·타깃지목형(가성비 소구) 정도에서만 자연스럽게 쓴다. 감성·경험 중심 형(①후기·고백형, ②장면·몰입형, ⑦질문·대화형, ⑩큐레이터편지형, ③반전·통념깨기형)은 가격·할인율을 언급하지 말고 장면·감정·경험·공간의 특징에 집중한다. ★ 특히 본문이 길어져도 가격·할인 문장을 습관적으로 채우지 말 것(같은 편성 안에서 가격 얘기가 반복되면 단조로움).';
+  // 작성 시점의 판매 상태는 게재 시점엔 달라진다(판매예정 → 판매중). 그래서 상태를 본문에 드러내지 않는다.
+  const statusRule = '★ 판매 상태 언급 금지(중요): products[].status 에 "판매예정"·"매진"이 있어도 그 상태를 제목·본문에 드러내지 말 것 — 콘텐츠를 쓰는 지금은 판매예정이어도 게재되는 시점엔 이미 판매중일 수 있다. "판매 예정", "곧 판매", "오픈 예정", "예약 오픈", "아직 안 열렸", "사전예약", "오픈런", "매진", "품절", "마감 임박" 같은 표현과 판매 시작일·오픈 시점 안내를 쓰지 않는다. 상품은 상태 언급 없이 담백하게 소개한다. (matched 배열의 status 필드는 데이터 그대로 채우되, 제목·본문에는 반영하지 말 것. 상품명에 "오픈런"·"LIVE" 같은 말머리가 붙어 있어도 본문에 옮기지 않는다.)';
   const toneRule = '★ 어투(친근함 필수): 친구에게 말 걸듯 친근하고 다정하게 쓴다. **딱딱한 격식체 금지** — "~입니다/~습니다/~하십시오/~하시겠어요/~좋을까요?/~하시길 바랍니다" 같은 정중·문어체는 쓰지 말 것. 대신 친근한 반말(~야/~어/~거든/~더라/~봐)이나 부드러운 해요체(~해요/~예요/~거든요/~더라고요/~봐요/~해봐요)를 쓴다. ★ 일관성: 한 콘텐츠(본문) 안에서는 반말 또는 해요체 중 하나로만 끝까지 통일(한 편 안에서 섞지 말 것).';
   // 본문 글자수 범위(조정 가능). 기본 100~300자. 값이 오면 20~2000자로 클램프하고 min<max 보장.
   let bMin = Math.round(Number(bodyMin)) || 100, bMax = Math.round(Number(bodyMax)) || 300;
@@ -862,6 +865,7 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       '4) 브리프·여행지에 맞는 products 를 matched 에(관련 상품만, productId·productCode 둘 다). hotels(중복 제거)도 채운다. input.persona 있으면 화자로, form 은 어울리는 형으로.',
       refLine,
       factRule,
+      statusRule,
       insLine,
       '5) 완료 시 status "done", output.items 는 정확히 input.count 개.',
       'output 형식: { "items": [ { "title": "...", "body": "...", "form": "②장면·몰입형", "persona": "", "titleAlternatives": [ {"title":"...","reason":"..."} ], "hotels": [...], "matched": [ {"productId":"99500","productCode":"2gx2yiq8","hotel":"...","productName":"...","price":123000,"status":"판매중"} ]' + specFmt + ' } ] }',
@@ -882,6 +886,7 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       toneRule,
       bodyLenNote,
       factRule,
+      statusRule,
       '★ 상품 매칭(중요): products(대상 지역의 판매 상품 목록)에서 이 콘텐츠의 지역'
         + (useFestival ? '(축제면 축제 개최지·인근 소도시)' : '')
         + '과 지리적으로 맞는 상품을 matched에 최대한 담는다. 관련도 높은 순으로 여러 개 가능, 지역/위치가 안 맞으면 억지로 넣지 말 것. 각 상품 productId(숫자)·productCode(영문) 그대로 복사하고 hotels에 매칭 호텔/여행지도 추가. 정말 맞는 상품이 없으면 matched 빈 배열 허용.',
@@ -899,6 +904,7 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       '★★ 2) 주제끼리 훅·각도·타깃·소재가 절대 겹치지 않게 배분한다 — 이 단계가 배치 전체의 다양성을 결정하므로 가장 중요하다. 비슷한 주제를 두 개 만들지 말 것.',
       '3) 각 주제마다 채운다: topic(주제 한 줄), angle(제목 훅의 방향 — 어떤 유형의 훅으로 갈지 한 줄. 주제마다 서로 다른 훅 유형으로), form(추천 본문 형), productIds(그 주제에 맞는 상품 productId 배열 — 관련 있는 것만 충분히).',
       webLineGen,
+      '★ 판매 상태를 주제로 삼지 말 것: "곧 오픈", "판매 예정", "사전예약", "오픈런", "매진 임박" 같은 판매 상태·시점은 주제·angle 에 넣지 않는다(게재 시점엔 상태가 달라진다).',
       insLine,
       '4) 본문은 쓰지 않는다(집필은 다음 단계). 완료 시 status "done", output.topics 는 정확히 input.count 개.',
       'output 형식: { "topics": [ { "topic": "...", "angle": "...", "form": "②장면·몰입형", "productIds": ["99500","99501"] } ] }',
@@ -923,6 +929,7 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       '5) 완료 시 status "done", output.items 는 정확히 (assignedTopics 개수 × input.perTopic) 개.',
       webLineGen ? '※ 인터넷 검색: 주제 발굴은 이미 끝났으니 검색은 "사실 확인" 위주로 쓴다 — 여행지·명물의 유래·수치·현지 이야기를 확인해 정확히 반영(추측·부정확 금지). 필요한 만큼만.' : '',
       factRule,
+      statusRule,
       refLine,
       insLine,
       'output 형식: { "items": [ { "title": "...", "body": "...", "form": "④팁·정보형", "persona": "「호텔 사용설명서」", "hotels": [...], "matched": [ {"productId":"99500","productCode":"2gx2yiq8","hotel":"...","productName":"...","price":123000,"status":"판매중"} ]' + specFmt + ' } ] }',
@@ -949,6 +956,7 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       '7) 완료 시 status "done", output.items 는 정확히 count×perTopic 개.',
       webLineGen,
       factRule,
+      statusRule,
       refLine,
       insLine,
       'output 형식: { "items": [ { "title": "...", "body": "...", "form": "④팁·정보형", "persona": "「호텔 사용설명서」", "hotels": [...], "matched": [ {"productId":"99500","productCode":"2gx2yiq8","hotel":"...","productName":"...","price":123000,"status":"판매중"} ]' + specFmt + ' } ] }',
