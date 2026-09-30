@@ -514,7 +514,43 @@ const SHARD_MAX = 4;         // 동시 실행 상한(과도한 병렬 방지)
 function shardCountFor(n) { return Math.max(1, Math.min(SHARD_MAX, Math.ceil(n / SHARD_PER_JOB))); }
 
 // plan job이 끝나면 주제를 나눠 write job 여러 개를 동시에 띄운다.
-function watchPlanAndFanOut(planId, body) {
+// 기획이 끝난 plan job을 write 샤드로 펼친다. 워처와 "재시작 복구" 양쪽에서 쓴다.
+// body를 인자로 받지 않고 plan.input 에서 복원하므로, 서버가 재시작돼도 이어서 처리할 수 있다.
+function fanOutPlan(planId) {
+  const plan = jobs.readJob(planId);
+  if (!plan) return false;
+  if (plan.status !== 'done') return false;
+  const topics = (plan.output && plan.output.topics) || [];
+  if (!topics.length) { markJobFailed(planId, '주제 기획 결과(topics)가 비어 있습니다.', true); return false; }
+  if (((plan.output && plan.output.shardJobs) || []).length) return false; // 이미 펼쳐짐
+  try {
+    // plan.input 에서 원래 생성 요청을 복원(샤드 전용 필드는 제외)
+    const i = plan.input || {};
+    const { phase, assignedTopics, shardIndex, shardTotal, regions, userContent, ...body } = i;
+    const k = shardCountFor(topics.length);
+    const size = Math.ceil(topics.length / k);
+    const shardJobs = [];
+    for (let n = 0; n < k; n++) {
+      const slice = topics.slice(n * size, (n + 1) * size);
+      if (!slice.length) continue;
+      const wj = buildContentJob({ ...body, phase: 'write', assignedTopics: slice, shardIndex: n, shardTotal: k, count: slice.length });
+      shardJobs.push(wj.id);
+      dispatchToClaude(wj.id, 'content(write ' + (n + 1) + '/' + k + ')');
+    }
+    const jp = jobs.jobPath(planId);
+    const o = JSON.parse(fs.readFileSync(jp, 'utf8'));
+    o.output = o.output || {};
+    o.output.shardJobs = shardJobs;
+    fs.writeFileSync(jp, JSON.stringify(o, null, 2));
+    console.log(`[shard] ${planId} → 주제 ${topics.length}개를 write job ${shardJobs.length}개로 병렬 실행`);
+    return true;
+  } catch (e) {
+    markJobFailed(planId, '샤드 생성 실패: ' + e.message, true);
+    return false;
+  }
+}
+
+function watchPlanAndFanOut(planId) {
   const started = Date.now();
   const timer = setInterval(() => {
     let plan;
@@ -528,29 +564,35 @@ function watchPlanAndFanOut(planId, body) {
     }
     if (plan.status !== 'done') return;
     clearInterval(timer);
-    const topics = (plan.output && plan.output.topics) || [];
-    if (!topics.length) { markJobFailed(planId, '주제 기획 결과(topics)가 비어 있습니다.'); return; }
-    try {
-      const k = shardCountFor(topics.length);
-      const size = Math.ceil(topics.length / k);
-      const shardJobs = [];
-      for (let i = 0; i < k; i++) {
-        const slice = topics.slice(i * size, (i + 1) * size);
-        if (!slice.length) continue;
-        const wj = buildContentJob({ ...body, phase: 'write', assignedTopics: slice, shardIndex: i, shardTotal: k, count: slice.length });
-        shardJobs.push(wj.id);
-        dispatchToClaude(wj.id, 'content(write ' + (i + 1) + '/' + k + ')');
-      }
-      const jp = jobs.jobPath(planId);
-      const o = JSON.parse(fs.readFileSync(jp, 'utf8'));
-      o.output = o.output || {};
-      o.output.shardJobs = shardJobs;
-      fs.writeFileSync(jp, JSON.stringify(o, null, 2));
-      console.log(`[shard] ${planId} → 주제 ${topics.length}개를 write job ${shardJobs.length}개로 병렬 실행`);
-    } catch (e) {
-      markJobFailed(planId, '샤드 생성 실패: ' + e.message);
-    }
+    fanOutPlan(planId);
   }, 2000);
+}
+
+// 서버 재시작 복구: 워처는 메모리에만 있어서, 기획 도중/직후에 서버가 재시작되면
+// plan 이 done 인데 샤드가 안 만들어진 채 방치된다(= "완료인데 불러오기 안 됨").
+// 기동 시 그런 job을 찾아 이어서 펼치고, 아직 진행 중인 plan 에는 워처를 다시 건다.
+function recoverOrphanPlans() {
+  let fanned = 0, rewatched = 0; const stale = [];
+  for (const j of jobs.listJobs('content')) {
+    if (!j.input || j.input.phase !== 'plan') continue;
+    const sh = ((j.output && j.output.shardJobs) || []).length;
+    if (j.status === 'done' && !sh && ((j.output && j.output.topics) || []).length) {
+      // 오래된 건 자동으로 되살리지 않는다 — 재시작만으로 예전 요청이 갑자기 다시 돌면
+      // 사용량이 예고 없이 나가고 주제도 시의성을 잃는다. 최근(12시간 이내) 것만 이어서 처리.
+      const age = Date.now() - Date.parse(j.createdAt || 0);
+      if (age < 12 * 60 * 60 * 1000) { if (fanOutPlan(j.id)) fanned++; }
+      else {
+        // 되살리지 않는 건 "완료"나 "생성 중"으로 남겨두면 오해를 준다 → 사유를 붙여 실패로 표시
+        markJobFailed(j.id, '서버가 재시작되어 집필 단계가 시작되지 못했습니다(주제 기획까지만 완료). 다시 생성해 주세요.', true);
+        stale.push(j.id);
+      }
+    } else if (j.status === 'pending') {
+      // 아직 기획 중일 수 있다(또는 프로세스가 죽어 영영 안 끝난다) → 워처를 다시 걸어 둔다
+      watchPlanAndFanOut(j.id); rewatched++;
+    }
+  }
+  if (fanned || rewatched) console.log(`[shard] 재시작 복구 — 이어서 펼침 ${fanned}건 · 워처 재등록 ${rewatched}건`);
+  if (stale.length) console.log(`[shard] 12시간 지나 자동 복구하지 않은 기획 ${stale.length}건: ${stale.join(', ')}\n         → 필요하면 스튜디오에서 다시 생성하세요(주제가 시의성을 잃었을 수 있음).`);
 }
 
 // ── 콘텐츠 제작 규칙 요약(가이드 발췌 — job에 첨부해 Claude가 그대로 따르게) ────
@@ -1063,7 +1105,7 @@ const server = http.createServer(async (req, res) => {
       const job = buildContentJob(shardable ? { ...body, phase: 'plan' } : body);
       if (!job.productCount) return sendErr(res, 400, '조건에 맞는 상품이 없습니다. 조건/선택을 확인하세요.');
       const auto = dispatchToClaude(job.id, shardable ? 'content(plan)' : 'content');
-      if (shardable) watchPlanAndFanOut(job.id, body);
+      if (shardable) watchPlanAndFanOut(job.id);
       return sendJson(res, 200, { jobId: job.id, productCount: job.productCount, auto, sharded: shardable, shards: shardable ? shardCountFor(cnt) : 1 });
     }
     // 상품 선택 UI용: 필터 옵션(호텔/여행지·종류) + 전체 상품(경량)
@@ -1117,15 +1159,35 @@ const server = http.createServer(async (req, res) => {
     // 최근 생성 잡 목록(새로고침/재접속 후 결과 복원용)
     if (p === '/api/content/recent') {
       const limit = Math.min(Number(q.get('limit')) || 30, 100);
-      const list = jobs.listJobs('content').sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, limit);
+      const all = jobs.listJobs('content');
+      const byId = new Map(all.map((j) => [j.id, j]));
+      // write 샤드는 내부 단계라 목록에 노출하지 않는다(사용자가 다루는 단위는 plan/단일 job)
+      const list = all.filter((j) => !(j.input && j.input.phase === 'write'))
+        .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, limit);
       const out = list.map((j) => {
         const inp = j.input || {}; let label;
         if (inp.mode === 'brief') label = (inp.brief || '').slice(0, 70) || '브리프';
         else if (inp.mode === 'match') label = '내 콘텐츠 매칭';
         else if (inp.regionMode) label = '지역: ' + ((inp.regions || []).join(', ') || inp.region || '') + (inp.festival ? ' · 축제' : '');
         else label = (inp.topic ? inp.topic : '자동 주제') + (inp.scope === 'overseas' ? ' (해외)' : ' (국내)');
-        const items = (j.output && j.output.items) || null;
-        return { id: j.id, status: j.status, mode: inp.mode || 'generate', regionMode: !!inp.regionMode, festival: !!inp.festival, scope: inp.scope || '', label, count: items ? items.length : null, createdAt: j.createdAt };
+        let items = (j.output && j.output.items) || null;
+        let status = j.status;
+        if (inp.phase === 'plan') {
+          // 샤딩된 생성: 실제 결과는 자식 write job들에 있다 → 합쳐서 건수를 보여준다
+          const sh = (j.output && j.output.shardJobs) || [];
+          if (!sh.length) {
+            // 기획은 끝났는데 아직 안 펼쳐짐(재시작 등) → 완료로 보이지 않게 진행 중으로 표시
+            status = j.status === 'done' ? 'running' : j.status;
+            items = null;
+          } else {
+            const kids = sh.map((id) => byId.get(id)).filter(Boolean);
+            const done = kids.filter((k) => k.status === 'done' && ((k.output && k.output.items) || []).length);
+            if (kids.some((k) => k.status === 'failed')) status = 'failed';
+            else if (done.length !== sh.length) status = 'running';
+            items = done.length === sh.length ? done.reduce((a, k) => a.concat(k.output.items), []) : null;
+          }
+        }
+        return { id: j.id, status, mode: inp.mode || 'generate', regionMode: !!inp.regionMode, festival: !!inp.festival, scope: inp.scope || '', label, count: items ? items.length : null, createdAt: j.createdAt };
       });
       return sendJson(res, 200, { jobs: out });
     }
@@ -1642,6 +1704,7 @@ server.listen(PORT, '127.0.0.1', () => {
     console.log(`\n▶ PRIZM 콘텐츠 스튜디오: http://localhost:${PORT}`);
     console.log(`  NAS: ${nasCfg ? `${nasCfg.host}:${nasCfg.port || 5000} (읽기 전용)` : '미설정'}`);
     console.log(`  콘텐츠/이미지 AI: ${AUTO_CLAUDE ? `자동 호출 ON (${CLAUDE_BIN}, --model opus)` : '수동(문구 붙여넣기)'} · API키 불필요`);
+    try { recoverOrphanPlans(); } catch (e) { console.error('[shard] 복구 실패:', e.message); }
     if (REF_SHARED) {
       console.log(`  모범 콘텐츠: 공유 저장소 ${REF_DIR} · 담당자 ${loadCurators().length}명 · 나(${currentUser()})=${isCurator() ? '등록가능' : '읽기전용'}`);
       if (STUDIO_CFG.autoPull !== false) gitPull().then((ok) => console.log(`  모범 코퍼스 동기화: ${ok ? '최신' : '실패(오프라인?)'}`));
