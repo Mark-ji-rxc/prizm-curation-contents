@@ -485,6 +485,9 @@ function dispatchToClaude(jobId, kind) {
         const ph = still.input && still.input.phase;
         const n = ph === 'plan' ? ((still.output && still.output.topics) || []).length : ((still.output && still.output.items) || []).length;
         if (!n) markJobFailed(jobId, ph === 'plan' ? '주제 기획 결과가 비어 있습니다.' : '생성 결과가 비어 있습니다.', true);
+        // 기획이 끝났으면 여기서 샤드를 펼친다. 프로세스가 종료된 뒤라 파일 쓰기가 끝난 게 보장된다
+        // (파일의 status만 보고 폴링하면, 에이전트가 status를 먼저 쓰고 output을 나중에 쓰는 순간을 잡는다).
+        else if (ph === 'plan') fanOutPlan(jobId);
       }
       // 토큰/비용 사용량 파싱 → job에 기록(“토큰 쓰는지” 확인·표시용)
       try {
@@ -516,12 +519,18 @@ function shardCountFor(n) { return Math.max(1, Math.min(SHARD_MAX, Math.ceil(n /
 // plan job이 끝나면 주제를 나눠 write job 여러 개를 동시에 띄운다.
 // 기획이 끝난 plan job을 write 샤드로 펼친다. 워처와 "재시작 복구" 양쪽에서 쓴다.
 // body를 인자로 받지 않고 plan.input 에서 복원하므로, 서버가 재시작돼도 이어서 처리할 수 있다.
+const _fanningOut = new Set(); // 종료 핸들러와 워처가 동시에 펼쳐 샤드가 두 번 만들어지는 걸 막는다
 function fanOutPlan(planId) {
+  if (_fanningOut.has(planId)) return false;
+  _fanningOut.add(planId);
+  try { return _fanOutPlanInner(planId); } finally { _fanningOut.delete(planId); }
+}
+function _fanOutPlanInner(planId) {
   const plan = jobs.readJob(planId);
   if (!plan) return false;
   if (plan.status !== 'done') return false;
   const topics = (plan.output && plan.output.topics) || [];
-  if (!topics.length) { markJobFailed(planId, '주제 기획 결과(topics)가 비어 있습니다.', true); return false; }
+  if (!topics.length) return false; // 아직 쓰는 중일 수 있다 → 여기서 실패로 확정하지 않는다
   if (((plan.output && plan.output.shardJobs) || []).length) return false; // 이미 펼쳐짐
   try {
     // plan.input 에서 원래 생성 요청을 복원(샤드 전용 필드는 제외)
@@ -562,7 +571,11 @@ function watchPlanAndFanOut(planId) {
       markJobFailed(planId, '주제 기획 단계가 시간 내에 끝나지 않았습니다.');
       return;
     }
+    // status만 done이고 topics가 아직 안 쓰인 순간이 있다(에이전트가 나눠 저장) → 결과까지 확인.
+    // 여기서 "비었다"고 실패시키면 안 된다(프로세스가 아직 쓰는 중일 수 있다). 그 판정은 종료 핸들러가 한다.
     if (plan.status !== 'done') return;
+    if (!((plan.output && plan.output.topics) || []).length) return;
+    if (((plan.output && plan.output.shardJobs) || []).length) { clearInterval(timer); return; } // 종료 핸들러가 이미 펼침
     clearInterval(timer);
     fanOutPlan(planId);
   }, 2000);
