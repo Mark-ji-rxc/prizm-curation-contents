@@ -841,6 +841,34 @@ function compactForJob(items) {
 
 // ── 콘텐츠 생성 job 만들기 ────────────────────────────────────────────────────
 // mode: 'generate'(주제 자동 도출) | 'match'(내가 쓴 콘텐츠 매칭) | 'brief'(지시/브리프로 생성)
+// matched 는 에이전트가 productId 문자열만 적는다(출력 토큰 절감) → 서버가 상품 데이터로 되살린다.
+// 예전 결과(전체 객체로 적힌 것)도 그대로 통과시켜 하위호환을 유지한다.
+let _prodIdx = null;
+function productIndex() {
+  if (_prodIdx) return _prodIdx;
+  _prodIdx = new Map();
+  for (const r of [...crawl.normalizedItems('domestic'), ...crawl.normalizedItems('overseas')]) {
+    if (r.productId) _prodIdx.set(String(r.productId), r);
+    if (r.productCode) _prodIdx.set(String(r.productCode), r);
+  }
+  return _prodIdx;
+}
+function expandMatched(items) {
+  if (!Array.isArray(items)) return items;
+  return items.map((it) => {
+    const mt = it && it.matched;
+    if (!Array.isArray(mt) || !mt.length) return it;
+    const idx = productIndex();
+    const out = mt.map((x) => {
+      if (x && typeof x === 'object') return x; // 구버전: 이미 전체 객체
+      const r = idx.get(String(x));
+      if (!r) return { productId: String(x), productCode: '', hotel: '', productName: '', price: null, status: '' };
+      return { productId: r.productId, productCode: r.productCode, hotel: r.hotel, productName: r.name, price: r.price, status: r.status };
+    });
+    return { ...it, matched: out };
+  });
+}
+
 function buildContentJob({ topic, count, perTopic, forms, scope, region, form, persona, condition, until, productCodes, productTypes, mode, userTitle, userBody, model, brief, webSearch, bodyMin, bodyMax, regionMode, festival, phase, assignedTopics, shardIndex, shardTotal }) {
   const per = Math.max(1, Number(perTopic) || 1);
   const web = !!webSearch || !!regionMode; // 지역 기반 콘텐츠는 인터넷 검색 필수
@@ -900,11 +928,11 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       '이 요청은 "사용자가 직접 작성한 콘텐츠에 어울리는 상품·호텔·여행지 매칭"입니다. 아래 지침대로 처리해 이 파일을 덮어써 저장하세요.',
       `0) products 범위: ${scopeDesc}. 이 목록 안에서만 매칭한다.`,
       '1) input.userContent(제목/본문)를 분석해 주제·분위기·키워드(지역/혜택/타깃/가격대/계절 등)를 파악한다.',
-      '2) 그 콘텐츠에 어울리는 products 를 matched 에 담는다. 콘텐츠와 실제로 연관되는 상품만(근거 없는 상품 금지). 각 상품은 productId(숫자)·productCode(영문)를 그대로 복사.',
+      '2) 그 콘텐츠에 어울리는 products 를 matched 에 담는다. 콘텐츠와 실제로 연관되는 상품만(근거 없는 상품 금지). ★ matched 에는 **productId(숫자) 문자열만** 나열한다 — 호텔명·상품명·가격·상태는 서버가 채우니 적지 말 것.',
       '3) hotels(매칭 호텔/여행지 중복 제거)도 채운다. form/persona 는 본문 톤에서 추정해 넣는다(모르면 빈 값).',
       '4) output.items 는 정확히 1개. title/body 는 input.userContent 를 그대로 사용.',
       '완료되면 status 를 "done" 으로 바꾸고 output 저장.',
-      'output 형식: { "items": [ { "title": "(사용자 제목)", "body": "(사용자 본문)", "form": "", "persona": "", "hotels": [...], "matched": [ {"productId":"99500","productCode":"2gx2yiq8","hotel":"...","productName":"...","price":123000,"status":"판매중"} ] } ] }',
+      'output 형식: { "items": [ { "title": "(사용자 제목)", "body": "(사용자 본문)", "form": "", "persona": "", "hotels": [...], "matched": ["99500","99501"] } ] }',
     ].join('\n');
   } else if (mode === 'brief') {
     instructions = [
@@ -923,7 +951,7 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       statusRule,
       insLine,
       '5) 완료 시 status "done", output.items 는 정확히 input.count 개.',
-      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "②장면·몰입형", "persona": "", "titleAlternatives": [ {"title":"...","reason":"..."} ], "hotels": [...], "matched": [ {"productId":"99500","productCode":"2gx2yiq8","hotel":"...","productName":"...","price":123000,"status":"판매중"} ]' + specFmt + ' } ] }',
+      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "②장면·몰입형", "persona": "", "titleAlternatives": [ {"title":"...","reason":"..."} ], "hotels": [...], "matched": ["99500","99501"]' + specFmt + ' } ] }',
     ].filter(Boolean).join('\n');
   } else if (regionMode) {
     const scopeKo = scope === 'overseas' ? '해외' : '국내';
@@ -944,11 +972,11 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       statusRule,
       '★ 상품 매칭(중요): products(대상 지역의 판매 상품 목록)에서 이 콘텐츠의 지역'
         + (useFestival ? '(축제면 축제 개최지·인근 소도시)' : '')
-        + '과 지리적으로 맞는 상품을 matched에 최대한 담는다. 관련도 높은 순으로 여러 개 가능, 지역/위치가 안 맞으면 억지로 넣지 말 것. 각 상품 productId(숫자)·productCode(영문) 그대로 복사하고 hotels에 매칭 호텔/여행지도 추가. 정말 맞는 상품이 없으면 matched 빈 배열 허용.',
+        + '과 지리적으로 맞는 상품을 matched에 최대한 담는다. 관련도 높은 순으로 여러 개 가능, 지역/위치가 안 맞으면 억지로 넣지 말 것. ★ matched 에는 productId(숫자) 문자열만 나열한다(다른 필드는 서버가 채움). hotels에 매칭 호텔/여행지도 추가. 정말 맞는 상품이 없으면 matched 빈 배열 허용.',
       '4) 각 콘텐츠에 titleAlternatives(제목 후보 2~4개, 한 줄 근거) 포함. input.persona 있으면 화자로, input.forms 있으면 어울리는 형으로.',
       insLine,
       '5) 완료 시 status "done", output.items 는 정확히 input.count 개.',
-      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "④팁·정보형", "persona": "", "region": "(대상 지역명)", "titleAlternatives": [ {"title":"...","reason":"..."} ], "hotels": ["(대상 지역명)", "(매칭 호텔들)"], "matched": [ {"productId":"99500","productCode":"2gx2yiq8","hotel":"...","productName":"...","price":123000,"status":"판매중"} ]' + specFmt + ' } ] }',
+      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "④팁·정보형", "persona": "", "region": "(대상 지역명)", "titleAlternatives": [ {"title":"...","reason":"..."} ], "hotels": ["(대상 지역명)", "(매칭 호텔들)"], "matched": ["99500","99501"]' + specFmt + ' } ] }',
     ].filter(Boolean).join('\n');
   } else if (phase === 'plan') {
     // 1단계: 주제만 도출한다(집필은 2단계에서 샤드로 병렬 처리). 배치 전체의 다양성은 이 단계에서 결정된다.
@@ -980,14 +1008,14 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       toneRule,
       priceRule,
       bodyLenNote,
-      '4) 각 콘텐츠에 matched(productId·productCode 둘 다)와 hotels(중복 제거) 채운다.',
+      '4) 각 콘텐츠에 matched(★ productId 숫자 문자열만 나열. 다른 필드는 서버가 채우니 쓰지 말 것)와 hotels(중복 제거) 채운다.',
       '5) 완료 시 status "done", output.items 는 정확히 (assignedTopics 개수 × input.perTopic) 개.',
       webLineGen ? '※ 인터넷 검색: 주제 발굴은 이미 끝났으니 검색은 "사실 확인" 위주로 쓴다 — 여행지·명물의 유래·수치·현지 이야기를 확인해 정확히 반영(추측·부정확 금지). 필요한 만큼만.' : '',
       factRule,
       statusRule,
       refLine,
       insLine,
-      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "④팁·정보형", "persona": "「호텔 사용설명서」", "hotels": [...], "matched": [ {"productId":"99500","productCode":"2gx2yiq8","hotel":"...","productName":"...","price":123000,"status":"판매중"} ]' + specFmt + ' } ] }',
+      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "④팁·정보형", "persona": "「호텔 사용설명서」", "hotels": [...], "matched": ["99500","99501"]' + specFmt + ' } ] }',
     ].filter(Boolean).join('\n');
   } else {
     instructions = [
@@ -1007,19 +1035,21 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       toneRule,
       priceRule,
       bodyLenNote,
-      '6) 각 콘텐츠에 matched(productId·productCode 둘 다)와 hotels(중복 제거) 채운다. 여행지/명물은 사실확인 후 필요시 web 검색.',
+      '6) 각 콘텐츠에 matched(★ productId 숫자 문자열만 나열. 다른 필드는 서버가 채우니 쓰지 말 것)와 hotels(중복 제거) 채운다. 여행지/명물은 사실확인 후 필요시 web 검색.',
       '7) 완료 시 status "done", output.items 는 정확히 count×perTopic 개.',
       webLineGen,
       factRule,
       statusRule,
       refLine,
       insLine,
-      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "④팁·정보형", "persona": "「호텔 사용설명서」", "hotels": [...], "matched": [ {"productId":"99500","productCode":"2gx2yiq8","hotel":"...","productName":"...","price":123000,"status":"판매중"} ]' + specFmt + ' } ] }',
+      'output 형식: { "items": [ { "title": "...", "body": "...", "form": "④팁·정보형", "persona": "「호텔 사용설명서」", "hotels": [...], "matched": ["99500","99501"]' + specFmt + ' } ] }',
     ].filter(Boolean).join('\n');
   }
   const rulesForJob = { ...CONTENT_RULES, 본문: `${bodyRule}. 무엇이 좋은지 + 왜 이렇게 묶었는지를 고객 상황에서 와닿게. (스튜디오에서 지정한 본문 길이)` };
   if (regionMode) { rulesForJob.상품매칭 = '지역 콘텐츠 — 본문은 지역 중심(상품 나열·광고 금지)이되, matched에는 그 지역과 맞는 판매상품을 최대한 연결(등록 노출용). 억지 매칭 금지, 없으면 빈 배열.'; rulesForJob.주의 = '본문에 가격·할인·예약 문구 금지. 지역 정보(특산물·명물·장점·가야 할 이유·요즘 트렌드)는 인터넷 검색으로 사실 확인.'; }
   // 슬림화된 products 스키마를 에이전트에 명시(flags가 배열로 바뀌었고 url이 빠졌음)
+  // matched 를 전체 객체로 되받아 적으면 출력 토큰의 85%를 먹고 한도(64K)에 걸려 결과가 통째로 유실된다(실측).
+  instructions += '\n★ matched 출력 규칙(중요): matched 는 **productId 문자열 배열**이다. 예: "matched": ["99500","99501"]. 호텔명·상품명·가격·상태·productCode 를 적지 말 것 — 서버가 products 데이터로 채운다. (전체 객체로 적으면 출력이 한도를 넘어 결과 전체가 날아간다.)';
   instructions += '\n★ products 스키마(중요): flags 는 "해당되는 혜택 이름만" 담은 배열이다(예: ["조식","라운지"]). '
     + 'false인 항목은 아예 없으니, 배열에 없으면 그 혜택은 없는 것으로 본다. '
     + '상품 URL 필드는 없다 — 필요하면 https://mweb.prizm.co.kr/goods/<productCode> 로 만들어 쓴다(출력에는 넣지 말 것).';
@@ -1148,15 +1178,23 @@ const server = http.createServer(async (req, res) => {
       const shardIds = (job.output && job.output.shardJobs) || null;
       if (shardIds && shardIds.length) {
         const kids = shardIds.map((id) => jobs.readJob(id)).filter(Boolean);
-        const failed = kids.find((k) => k.status === 'failed');
+        const failedKids = kids.filter((k) => k.status === 'failed');
         // status=done 직후 items가 아직 안 써진 순간이 있어(에이전트가 나눠 저장) 결과 존재까지 확인한다
         const doneKids = kids.filter((k) => k.status === 'done' && ((k.output && k.output.items) || []).length > 0);
-        const allDone = kids.length === shardIds.length && doneKids.length === shardIds.length;
-        const items = allDone ? doneKids.reduce((a, k) => a.concat((k.output && k.output.items) || []), []) : null;
+        const settled = kids.length === shardIds.length && (doneKids.length + failedKids.length) === shardIds.length;
+        const allDone = settled && !failedKids.length;
+        // 일부 샤드가 실패해도 성공한 샤드 결과는 살려 돌려준다(예전엔 하나만 실패해도 전부 못 불러왔다)
+        const partial = settled && failedKids.length > 0 && doneKids.length > 0;
+        const items = (allDone || partial)
+          ? expandMatched(doneKids.reduce((a, k) => a.concat((k.output && k.output.items) || []), []))
+          : null;
         return sendJson(res, 200, {
-          id: job.id, status: failed ? 'failed' : (allDone ? 'done' : 'running'), input: job.input, items,
-          usage: allDone ? sumUsage([job.usage, ...kids.map((k) => k.usage)]) : null,
-          error: failed ? (failed.error || '샤드 처리 실패') : null,
+          id: job.id,
+          status: settled ? ((allDone || partial) ? 'done' : 'failed') : 'running',
+          input: job.input, items,
+          usage: settled ? sumUsage([job.usage, ...kids.map((k) => k.usage)]) : null,
+          error: settled && failedKids.length && !doneKids.length ? (failedKids[0].error || '샤드 처리 실패') : null,
+          warning: partial ? `집필 ${shardIds.length}개 중 ${failedKids.length}개 실패 — 성공한 ${items.length}편만 불러왔어요. 사유: ${failedKids[0].error || '알 수 없음'}` : null,
           progress: { phase: 'write', done: doneKids.length, total: shardIds.length },
         });
       }
@@ -1164,7 +1202,7 @@ const server = http.createServer(async (req, res) => {
       const planning = job.input && job.input.phase === 'plan' && job.status !== 'failed';
       return sendJson(res, 200, {
         id: job.id, status: job.status, input: job.input,
-        items: ((job.output && job.output.items) || []).length ? job.output.items : null, usage: job.usage || null,
+        items: ((job.output && job.output.items) || []).length ? expandMatched(job.output.items) : null, usage: job.usage || null,
         error: job.error || null,
         progress: planning ? { phase: 'plan', done: 0, total: 0 } : null,
       });

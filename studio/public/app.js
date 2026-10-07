@@ -454,7 +454,8 @@ function pollContent(jobId, banner, auto, stampCat, note) {
       if (s.status === 'done' && s.items) {
         if (stampCat) s.items.forEach((it) => { it.category = stampCat; }); // 생성 scope로 국내/해외 분류 기록
         clearInterval(t); renderContentCards(s.items); markDone(2);
-        banner.classList.remove('hidden'); banner.innerHTML = usageLine(s.usage);
+        banner.classList.remove('hidden');
+        banner.innerHTML = (s.warning ? `<b>⚠ ${esc(s.warning)}</b><br>` : '') + usageLine(s.usage);
         if (!s.usage) setTimeout(async () => { try { const s2 = await api('/api/content/job?id=' + jobId); banner.innerHTML = usageLine(s2.usage); } catch {} }, 3000);
         return;
       }
