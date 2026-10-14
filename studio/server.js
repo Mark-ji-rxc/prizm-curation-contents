@@ -707,7 +707,17 @@ function applyCondition(items, condition, untilDate) {
     case 'all': return items.slice(); // 크롤링한 모든 상품(판매중·판매예정·매진 포함)
     case 'upcoming': return items.filter((r) => r.status === '판매예정');
     case 'always': return selling.filter((r) => r.alwaysOn);
-    case 'until': return selling.filter((r) => r.alwaysOn || (r.saleEnd && untilDate && r.saleEnd >= untilDate));
+    case 'until': {
+      // "특정일까지 판매" = 그 날짜까지 살 수 있는 상품.
+      //  - 판매중: 상시판매거나 판매종료일이 기준일 이후(그 날까지 계속 판매)
+      //  - 판매예정: 기준일 전에 판매가 시작되면 그 기간 안에 살 수 있으므로 포함
+      //    (판매예정은 saleStart=saleEnd 인 단일일 판매가 많아, 종료일 기준으로만 보면 전부 빠진다)
+      if (!untilDate) return selling.filter((r) => r.alwaysOn);
+      const open = selling.filter((r) => r.alwaysOn || (r.saleEnd && r.saleEnd >= untilDate));
+      const soon = items.filter((r) => r.status === '판매예정' && r.saleStart && r.saleStart <= untilDate);
+      const seen = new Set(open.map((r) => r.productCode || r.productId));
+      return open.concat(soon.filter((r) => !seen.has(r.productCode || r.productId)));
+    }
     default: return selling; // 'selling' = 판매중만
   }
 }
@@ -936,7 +946,7 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
     ? `★ savedInsights: 실제 공개중 콘텐츠 학습에서 도출한 선호 원칙이다. 이 원칙을 적극 반영해 써라(특히 제목):\n- ${_principles.join('\n- ')}`
     : '';
   const typeDesc = (productTypes && productTypes.length) ? ` · 타입: ${productTypes.join(', ')}만` : '';
-  const scopeDesc = ((productCodes && productCodes.length) ? `직접 선택한 상품 ${items.length}개 한정` : (cond === 'until' ? `${until || ''}까지 판매(상시 포함)` : (CONDITION_LABEL[cond] || '판매중') + ' 상품')) + typeDesc;
+  const scopeDesc = ((productCodes && productCodes.length) ? `직접 선택한 상품 ${items.length}개 한정` : (cond === 'until' ? `${until || ''}까지 판매(상시판매 + 그 전에 판매 시작하는 판매예정 포함)` : (CONDITION_LABEL[cond] || '판매중') + ' 상품')) + typeDesc;
   let instructions;
   if (mode === 'match') {
     instructions = [
