@@ -1167,10 +1167,21 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { jobId: job.id, productCount: job.productCount, auto, sharded: shardable, shards: shardable ? shardCountFor(cnt) : 1 });
     }
     // 상품 선택 UI용: 필터 옵션(호텔/여행지·종류) + 전체 상품(경량)
+    // 상품 직접 선택용 목록. 파라미터를 주면 "콘텐츠 생성 조건"과 똑같이 걸러서 내려준다
+    // (생성에 쓰는 pickProducts 를 그대로 재사용해야 화면 목록과 실제 생성 대상이 어긋나지 않는다).
+    // 파라미터가 없으면 전체 — ③ 상품 검색처럼 전 범위를 뒤져야 하는 쪽에서 쓴다.
     if (p === '/api/products/pick') {
-      const rows = [...crawl.normalizedItems('domestic'), ...crawl.normalizedItems('overseas')]
-        .map((r) => ({ productCode: r.productCode, productId: r.productId, source: r.source, hotel: r.hotel, region: r.region, type: r.type, name: r.name, price: r.price, status: r.status, nights: r.nights }));
-      return sendJson(res, 200, { rows });
+      const scope = q.get('scope') || '';
+      const region = q.get('region') || '';
+      const cond = q.get('condition') || '';
+      const until = q.get('until') || '';
+      const types = (q.get('productTypes') || '').split(',').map((x) => x.trim()).filter(Boolean);
+      const filtered = !!(scope || region || cond || types.length);
+      const base = filtered
+        ? pickProducts({ scope, region, condition: cond, until, productTypes: types })
+        : [...crawl.normalizedItems('domestic'), ...crawl.normalizedItems('overseas')];
+      const rows = base.map((r) => ({ productCode: r.productCode, productId: r.productId, source: r.source, hotel: r.hotel, region: r.region, type: r.type, productType: r.productType, name: r.name, price: r.price, status: r.status, nights: r.nights }));
+      return sendJson(res, 200, { rows, filtered });
     }
     if (p === '/api/content/job') {
       const job = jobs.readJob(q.get('id'));

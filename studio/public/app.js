@@ -145,7 +145,7 @@ async function loadThemes() {
       $('#themePresets').innerHTML = (t[scope] || []).map((x) => `<span class="chip">${esc(x)}</span>`).join('');
     };
     render();
-    $('#cScope').addEventListener('change', () => { render(); renderTypeChips(); loadRegions(); }); // 구분 바뀌면 상품 타입 칩·지역 목록 재필터
+    $('#cScope').addEventListener('change', () => { render(); renderTypeChips(); loadRegions(); refreshPickerIfOpen(); }); // 구분 바뀌면 상품 타입 칩·지역 목록·직접선택 목록 재필터
     $('#themePresets').addEventListener('click', (e) => { if (e.target.classList.contains('chip')) $('#cTopic').value = e.target.textContent; });
   } catch {}
 }
@@ -162,9 +162,9 @@ async function loadRegions() {
   } catch { sel.innerHTML = '<option value="">전체</option>'; }
   refreshTypeCounts(); // 지역 목록 갱신 후 타입 수도 재계산
 }
-$('#cRegion').addEventListener('change', refreshTypeCounts);
-$('#cCondition').addEventListener('change', () => { $('#cUntilWrap').classList.toggle('hidden', $('#cCondition').value !== 'until'); refreshTypeCounts(); });
-$('#cUntil').addEventListener('change', refreshTypeCounts);
+$('#cRegion').addEventListener('change', () => { refreshTypeCounts(); refreshPickerIfOpen(); });
+$('#cCondition').addEventListener('change', () => { $('#cUntilWrap').classList.toggle('hidden', $('#cCondition').value !== 'until'); refreshTypeCounts(); refreshPickerIfOpen(); });
+$('#cUntil').addEventListener('change', () => { refreshTypeCounts(); refreshPickerIfOpen(); });
 
 // 생성 모드 토글(주제 자동 생성 / 내 콘텐츠 매칭)
 let genMode = 'generate';
@@ -179,7 +179,8 @@ $('#genModeTabs').addEventListener('click', (e) => {
 
 // 상품 직접 선택(피커) — 선택 시 그 상품들로만 생성/매칭
 const pickCodes = new Set();
-let pickerRows = [];
+let pickerRows = [];   // ② 상품 직접 선택 — 상단 조건으로 걸러진 목록
+let allProductRows = []; // ③ 상품 검색 — 조건 무관 전체
 // 본문 글자수 범위(프리셋 "min-max" 또는 직접 입력). 기본 100~300.
 function bodyLenValues() {
   const v = ($('#cBodyLen') && $('#cBodyLen').value) || '100-300';
@@ -275,7 +276,7 @@ function updateGenGate() {
   ['#genContent', '#matchContent'].forEach((id) => { const b = $(id); if (b) b.disabled = empty; }); // 브리프는 전체 상품 풀을 쓰므로 게이트 제외
   const note = $('#genEmptyNote'); if (note) note.classList.toggle('hidden', !empty);
 }
-$('#typeChips').addEventListener('click', (e) => { const c = e.target.closest('.chip'); if (!c || c.classList.contains('disabled')) return; const t = c.dataset.type; if (selTypes.has(t)) selTypes.delete(t); else selTypes.add(t); c.classList.toggle('sel'); });
+$('#typeChips').addEventListener('click', (e) => { const c = e.target.closest('.chip'); if (!c || c.classList.contains('disabled')) return; const t = c.dataset.type; if (selTypes.has(t)) selTypes.delete(t); else selTypes.add(t); c.classList.toggle('sel'); refreshPickerIfOpen(); });
 $('#matchContent').onclick = () => { if (!$('#mBody').value.trim()) return alert('매칭할 콘텐츠 본문을 입력하세요.'); submitGeneration({ mode: 'match', userTitle: $('#mTitle').value.trim(), userBody: $('#mBody').value.trim() }); };
 // ── 브리프 배치(여러 건 동시 지시) ──────────────────────────────────────────
 const BRIEF_MAX = 12;
@@ -383,12 +384,35 @@ async function loadRecentJob(id) {
 }
 $('#toggleRecent') && ($('#toggleRecent').onclick = () => { const el = $('#recentPanel'); const show = el.classList.contains('hidden'); el.classList.toggle('hidden'); if (show) loadRecent(); else clearTimeout(recentTimer); });
 
-$('#togglePicker').onclick = async () => { const el = $('#pickerPanel'); const show = el.classList.contains('hidden'); el.classList.toggle('hidden'); if (show && !pickerRows.length) await loadPicker(); };
+$('#togglePicker').onclick = async () => { const el = $('#pickerPanel'); const show = el.classList.contains('hidden'); el.classList.toggle('hidden'); if (show) await loadPicker(); };
 $('#pkClear').onclick = () => { pickCodes.clear(); $('#pickCount').textContent = 0; renderPicker(); updateGenGate(); };
 ['#pkSource', '#pkHotel', '#pkType', '#pkKeyword'].forEach((s) => $(s).addEventListener('input', () => { if (s === '#pkSource' || s === '#pkType' || s === '#pkHotel') fillPickHotels(); renderPicker(); }));
+// 위의 "대상 상품 범위"(구분·지역·판매조건·상품타입)를 그대로 적용해서 받아온다 —
+// 화면에 보이는 목록과 실제 생성 대상이 어긋나지 않게 서버의 pickProducts 로 거른 결과를 쓴다.
+function pickerQuery() {
+  const p = new URLSearchParams();
+  p.set('scope', ($('#cScope') && $('#cScope').value) || 'domestic');
+  const rg = ($('#cRegion') && $('#cRegion').value || '').trim(); if (rg) p.set('region', rg);
+  p.set('condition', ($('#cCondition') && $('#cCondition').value) || 'selling');
+  const until = ($('#cUntil') && $('#cUntil').value) || ''; if (until) p.set('until', until);
+  if (selTypes.size) p.set('productTypes', [...selTypes].join(','));
+  return p.toString();
+}
 async function loadPicker() {
-  try { const { rows } = await api('/api/products/pick'); pickerRows = rows; fillPickTypes(); fillPickHotels(); renderPicker(); }
-  catch (e) { $('#pickerList').innerHTML = '오류: ' + esc(e.message); }
+  try {
+    const { rows } = await api('/api/products/pick?' + pickerQuery());
+    pickerRows = rows;
+    // 조건에서 벗어난 선택은 해제(목록에 없는데 선택만 남아 있으면 혼란)
+    const avail = new Set(rows.map((r) => r.productCode || r.productId));
+    [...pickCodes].forEach((c) => { if (!avail.has(c)) pickCodes.delete(c); });
+    $('#pickCount').textContent = pickCodes.size;
+    fillPickTypes(); fillPickHotels(); renderPicker(); updateGenGate();
+  } catch (e) { $('#pickerList').innerHTML = '오류: ' + esc(e.message); }
+}
+// 상단 조건이 바뀌면 열려 있는 picker 목록도 따라서 갱신
+function refreshPickerIfOpen() {
+  const el = $('#pickerPanel');
+  if (el && !el.classList.contains('hidden')) loadPicker();
 }
 function fillPickTypes() {
   const types = [...new Set(pickerRows.map((r) => r.type).filter(Boolean))].sort();
@@ -741,13 +765,13 @@ async function setupProductStep() {
   exposureType = 'goods';
   const g = document.querySelector('input[name="expoType"][value="goods"]'); if (g) g.checked = true;
   renderProductPick();
-  if (!pickerRows.length) { try { await loadPicker(); } catch {} } // 검색용 전체 상품 로드
+  if (!allProductRows.length) { try { const { rows } = await api('/api/products/pick'); allProductRows = rows; } catch {} } // ③ 검색은 조건과 무관하게 전 범위에서 찾는다
   const q = $('#itemSearchQuery'); if (q) q.value = '';
   renderItemSelected(); renderItemSearch();
   await loadShowroomCandidates(); renderShowroomPick();
   setExposure('goods');
 }
-// ③ 상품 검색해서 추가 — 전체 상품(pickerRows)에서 이름·ID·지역·호텔·코드로 검색
+// ③ 상품 검색해서 추가 — 전체 상품(allProductRows)에서 이름·ID·지역·호텔·코드로 검색
 function normProd(r) { return { productId: String(r.productId || r.productCode || ''), productCode: r.productCode || '', productName: r.name || r.productName || '', hotel: r.hotel || r.region || '', region: r.region || '', price: r.price, status: r.status || '판매중' }; }
 function renderItemSelected() {
   const el = $('#itemSelected'); if (!el) return;
@@ -760,7 +784,7 @@ function renderItemSearch() {
   const q = (($('#itemSearchQuery') && $('#itemSearchQuery').value) || '').trim().toLowerCase();
   const src = ($('#itemSearchSrc') && $('#itemSearchSrc').value) || '';
   if (!q) { el.innerHTML = '<div class="muted sm">검색어를 입력하면 상품이 나옵니다.</div>'; return; }
-  const rows = pickerRows.filter((r) => {
+  const rows = allProductRows.filter((r) => {
     if (src && r.source !== src) return false;
     return `${r.name || ''} ${r.hotel || ''} ${r.region || ''} ${r.productId || ''} ${r.productCode || ''}`.toLowerCase().includes(q);
   }).slice(0, 100);
