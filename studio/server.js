@@ -843,15 +843,25 @@ function compactForJob(items) {
 // mode: 'generate'(주제 자동 도출) | 'match'(내가 쓴 콘텐츠 매칭) | 'brief'(지시/브리프로 생성)
 // matched 는 에이전트가 productId 문자열만 적는다(출력 토큰 절감) → 서버가 상품 데이터로 되살린다.
 // 예전 결과(전체 객체로 적힌 것)도 그대로 통과시켜 하위호환을 유지한다.
-let _prodIdx = null;
+// ⚠️ 인덱스를 영구 캐시하면 "상품 불러오기"로 새 데이터를 받아도 서버가 옛 목록만 보고
+//    새 상품을 못 찾는다(= 상품명·코드가 빈 칸으로 보임). 데이터셋이 바뀌면 다시 만든다.
+let _prodIdx = null, _prodIdxKey = '';
+function datasetSignature() {
+  return ['domestic', 'overseas'].map((src) => {
+    const i = crawl.datasetInfo(src);
+    return i ? `${i.jsonFile}:${i.updatedAt}` : '-';
+  }).join('|');
+}
 function productIndex() {
-  if (_prodIdx) return _prodIdx;
-  _prodIdx = new Map();
+  const sig = datasetSignature();
+  if (_prodIdx && _prodIdxKey === sig) return _prodIdx;
+  const m = new Map();
   for (const r of [...crawl.normalizedItems('domestic'), ...crawl.normalizedItems('overseas')]) {
-    if (r.productId) _prodIdx.set(String(r.productId), r);
-    if (r.productCode) _prodIdx.set(String(r.productCode), r);
+    if (r.productId) m.set(String(r.productId), r);
+    if (r.productCode) m.set(String(r.productCode), r);
   }
-  return _prodIdx;
+  _prodIdx = m; _prodIdxKey = sig;
+  return m;
 }
 function expandMatched(items) {
   if (!Array.isArray(items)) return items;
@@ -860,7 +870,12 @@ function expandMatched(items) {
     if (!Array.isArray(mt) || !mt.length) return it;
     const idx = productIndex();
     const out = mt.map((x) => {
-      if (x && typeof x === 'object') return x; // 구버전: 이미 전체 객체
+      if (x && typeof x === 'object') {
+        // 구버전(전체 객체)은 그대로. 단 예전에 인덱스가 낡아 빈 값으로 저장된 건 id로 다시 채운다
+        if (x.productName || !x.productId) return x;
+        const r2 = idx.get(String(x.productId));
+        return r2 ? { productId: r2.productId, productCode: r2.productCode, hotel: r2.hotel, productName: r2.name, price: r2.price, status: r2.status } : x;
+      }
       const r = idx.get(String(x));
       if (!r) return { productId: String(x), productCode: '', hotel: '', productName: '', price: null, status: '' };
       return { productId: r.productId, productCode: r.productCode, hotel: r.hotel, productName: r.name, price: r.price, status: r.status };
@@ -1343,7 +1358,8 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/content/select' && req.method === 'POST') {
       const { item } = JSON.parse(await readBody(req) || '{}');
       if (!item) return sendErr(res, 400, 'item 필요');
-      state.selectedContent = item;
+      // 선택 시점에 최신 상품 데이터로 matched 를 다시 채운다 — 생성 당시 비어 있던 항목(상품명·코드)도 여기서 복구된다
+      state.selectedContent = expandMatched([item])[0] || item;
       state.selectedProducts = [];
       state.selectedShowrooms = [];
       state.exposureType = 'goods';
