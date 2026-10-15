@@ -76,9 +76,7 @@
       <label>지역 (선택)
         <select id="cRegion" class="input"><option value="">전체</option></select>
       </label>
-      <label>호텔/여행지 (선택)
-        <select id="cHotel" class="input"><option value="">전체</option></select>
-      </label>
+
       <label>판매 조건
         <select id="cCondition">
           <option value="selling">판매중</option>
@@ -100,6 +98,20 @@
     <label class="block">상품 타입 (선택 · 여러 개 가능 · 비우면 전체)
       <div id="typeChips" class="chips"></div>
     </label>
+
+    <!-- 호텔/여행지 직접 선택(다중) -->
+    <div class="picker-bar">
+      <button id="toggleHotelPicker" class="btn sm ghost">호텔/여행지 선택 (<span id="hotelCount">0</span>)</button>
+      <span class="muted sm">여러 곳을 고를 수 있어요. 비우면 위 조건의 전체 호텔을 사용합니다.</span>
+    </div>
+    <div id="hotelPanel" class="hidden">
+      <div class="filters">
+        <input id="hpSearch" class="input sm" placeholder="호텔·여행지 이름 검색" />
+        <button id="hpClear" class="btn sm ghost">선택 해제</button>
+      </div>
+      <div id="hpMeta" class="muted sm"></div>
+      <div id="hotelList" class="pick-list"></div>
+    </div>
 
     <!-- 상품 직접 선택(두 모드 공통) -->
     <div class="picker-bar">
