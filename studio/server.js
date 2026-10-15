@@ -724,21 +724,28 @@ function applyCondition(items, condition, untilDate) {
 const CONDITION_LABEL = { all: '노출 상품 전체(판매중·판매예정·매진 포함)', selling: '판매중', always: '상시판매', until: '특정일까지 판매', upcoming: '판매예정' };
 
 // 우선순위: productCodes(직접 선택) > productTypes(타입 조건, 양쪽 데이터셋) > 조건+지역(단일 scope)
-function pickProducts({ scope, region, condition, until, productCodes, productTypes }) {
+// 조건들은 모두 AND 로 좁힌다(구분 → 판매조건 → 지역 → 상품타입 → 호텔).
+// ⚠️ 예전엔 productTypes 가 있으면 양쪽 데이터셋을 다 훑고 scope·region 을 무시해서,
+//    "부산"을 골라도 서울 상품이 섞여 나왔다. 타입은 범위를 넓히는 조건이 아니라 좁히는 조건이다.
+// productCodes(상품 직접 선택)만 예외 — 사용자가 콕 집은 것이므로 다른 조건보다 우선한다.
+function pickProducts({ scope, region, condition, until, productCodes, productTypes, hotels }) {
   if (Array.isArray(productCodes) && productCodes.length) {
     const set = new Set(productCodes.map(String));
     const all = [...crawl.normalizedItems('domestic'), ...crawl.normalizedItems('overseas')];
     return all.filter((r) => set.has(String(r.productCode)) || (r.productId && set.has(String(r.productId))));
   }
+  const src = (scope === 'domestic' || scope === 'overseas') ? [scope] : ['domestic', 'overseas'];
+  let items = src.reduce((a, sc) => a.concat(applyCondition(crawl.normalizedItems(sc), condition || 'selling', until)), []);
+  if (region) {
+    items = items.filter((r) => (r.source === 'overseas' ? overseasRegion(r) === region : r.region === region));
+  }
   if (Array.isArray(productTypes) && productTypes.length) {
     const set = new Set(productTypes);
-    const all = [...applyCondition(crawl.normalizedItems('domestic'), condition || 'selling', until), ...applyCondition(crawl.normalizedItems('overseas'), condition || 'selling', until)];
-    return all.filter((r) => set.has(r.productType));
+    items = items.filter((r) => set.has(r.productType));
   }
-  let items = applyCondition(crawl.normalizedItems(scope), condition || 'selling', until);
-  if (region) {
-    if (scope === 'overseas') items = items.filter((r) => overseasRegion(r) === region);
-    else items = items.filter((r) => r.region === region);
+  if (Array.isArray(hotels) && hotels.length) { // 호텔(해외는 여행지) 단위 지정
+    const set = new Set(hotels.map(String));
+    items = items.filter((r) => set.has(String(r.hotel || r.region || '')));
   }
   return items;
 }
@@ -894,7 +901,7 @@ function expandMatched(items) {
   });
 }
 
-function buildContentJob({ topic, count, perTopic, forms, scope, region, form, persona, condition, until, productCodes, productTypes, mode, userTitle, userBody, model, brief, webSearch, bodyMin, bodyMax, regionMode, festival, phase, assignedTopics, shardIndex, shardTotal }) {
+function buildContentJob({ topic, count, perTopic, forms, scope, region, form, persona, condition, until, productCodes, productTypes, mode, userTitle, userBody, model, brief, webSearch, bodyMin, bodyMax, regionMode, festival, hotels, phase, assignedTopics, shardIndex, shardTotal }) {
   const per = Math.max(1, Number(perTopic) || 1);
   const web = !!webSearch || !!regionMode; // 지역 기반 콘텐츠는 인터넷 검색 필수
   // 사실 근거 + 추측 표기 규칙(모든 생성 모드 공통): 데이터에 없는 구체정보는 검색으로 확인, 못 하면 추측 처리
@@ -914,7 +921,7 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
   const webLineGen = web ? '※ 인터넷 검색 활용(2가지): (1) 주제 발굴 — 요즘 화제·시즌·트렌드(계절 이벤트, 제철 명물, 연휴, 뜨는 여행지·테마, 최신 이슈)를 WebSearch로 찾아 "유저 관심이 높을 새로운 주제"를 발굴한다. 단, 반드시 실제 products와 연결되는 주제만 채택(데이터에 상품이 없으면 버림). (2) 사실 확인 — 여행지·명물의 유래·수치·현지 이야기를 검색으로 확인해 정확히 반영(추측·부정확 금지). 검색은 필요한 만큼만.' : '';
   const formList = Array.isArray(forms) ? forms.filter(Boolean) : (form ? [form] : []);
   const cond = condition || 'selling';
-  const items = pickProducts({ scope, region, condition: cond, until, productCodes, productTypes });
+  const items = pickProducts({ scope, region, condition: cond, until, productCodes, productTypes, hotels });
   // 지역 기반 콘텐츠: 대상 지역 후보(선택 지역 1개 또는 해당 구분의 전체 지역 목록)
   const regionCands = regionMode ? (region ? [region] : regionList(scope).map((r) => r.region)) : null;
   // 지역/축제 콘텐츠도 그 지역 상품을 matched로 붙이도록, 대상 지역 상품 풀 제공
@@ -1094,7 +1101,7 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
   }
 
   return jobs.createJob('content', {
-    input: { phase: phase || null, assignedTopics: assignedTopics || null, shardIndex: shardIndex == null ? null : shardIndex, shardTotal: shardTotal == null ? null : shardTotal, mode: mode || 'generate', topic: topic || '', count: mode === 'match' ? 1 : (Number(count) || (mode === 'brief' ? 1 : 3)), perTopic: (mode === 'match' || mode === 'brief' || regionMode) ? 1 : per, forms: formList, scope, region: region || '', persona: persona || '', condition: cond, until: until || '', productCodes: productCodes || [], productTypes: productTypes || [], model: model === 'sonnet' ? 'sonnet' : 'opus', webSearch: web, bodyMin: bMin, bodyMax: bMax, regionMode: !!regionMode, regions: regionCands || [], festival: !!useFestival, brief: mode === 'brief' ? (brief || '') : '', userContent: mode === 'match' ? { title: userTitle || '', body: userBody || '' } : null },
+    input: { phase: phase || null, assignedTopics: assignedTopics || null, shardIndex: shardIndex == null ? null : shardIndex, shardTotal: shardTotal == null ? null : shardTotal, mode: mode || 'generate', topic: topic || '', count: mode === 'match' ? 1 : (Number(count) || (mode === 'brief' ? 1 : 3)), perTopic: (mode === 'match' || mode === 'brief' || regionMode) ? 1 : per, forms: formList, scope, region: region || '', persona: persona || '', condition: cond, until: until || '', productCodes: productCodes || [], productTypes: productTypes || [], hotels: hotels || [], model: model === 'sonnet' ? 'sonnet' : 'opus', webSearch: web, bodyMin: bMin, bodyMax: bMax, regionMode: !!regionMode, regions: regionCands || [], festival: !!useFestival, brief: mode === 'brief' ? (brief || '') : '', userContent: mode === 'match' ? { title: userTitle || '', body: userBody || '' } : null },
     rules: rulesForJob,
     referenceExamples: references,
     productCount: regionMode ? Math.max(1, (regionCands || []).length) : items.length,
@@ -1183,15 +1190,33 @@ const server = http.createServer(async (req, res) => {
     // 상품 직접 선택용 목록. 파라미터를 주면 "콘텐츠 생성 조건"과 똑같이 걸러서 내려준다
     // (생성에 쓰는 pickProducts 를 그대로 재사용해야 화면 목록과 실제 생성 대상이 어긋나지 않는다).
     // 파라미터가 없으면 전체 — ③ 상품 검색처럼 전 범위를 뒤져야 하는 쪽에서 쓴다.
+    // 조건(구분·지역·판매조건·상품타입)에 맞는 호텔/여행지 목록 + 상품 수 — "호텔 단위 지정"용
+    if (p === '/api/products/hotels') {
+      const scope = q.get('scope') || '';
+      const region = q.get('region') || '';
+      const cond = q.get('condition') || '';
+      const until = q.get('until') || '';
+      const types = (q.get('productTypes') || '').split(',').map((x) => x.trim()).filter(Boolean);
+      const rows = pickProducts({ scope, region, condition: cond, until, productTypes: types });
+      const m = new Map();
+      for (const r of rows) {
+        const name = String(r.hotel || r.region || '').trim();
+        if (!name) continue;
+        m.set(name, (m.get(name) || 0) + 1);
+      }
+      const hotels = [...m.entries()].map(([hotel, count]) => ({ hotel, count })).sort((a, b) => a.hotel.localeCompare(b.hotel, 'ko'));
+      return sendJson(res, 200, { hotels });
+    }
     if (p === '/api/products/pick') {
       const scope = q.get('scope') || '';
       const region = q.get('region') || '';
       const cond = q.get('condition') || '';
       const until = q.get('until') || '';
       const types = (q.get('productTypes') || '').split(',').map((x) => x.trim()).filter(Boolean);
-      const filtered = !!(scope || region || cond || types.length);
+      const hotels = (q.get('hotels') || '').split('|').map((x) => x.trim()).filter(Boolean);
+      const filtered = !!(scope || region || cond || types.length || hotels.length);
       const base = filtered
-        ? pickProducts({ scope, region, condition: cond, until, productTypes: types })
+        ? pickProducts({ scope, region, condition: cond, until, productTypes: types, hotels })
         : [...crawl.normalizedItems('domestic'), ...crawl.normalizedItems('overseas')];
       const rows = base.map((r) => ({ productCode: r.productCode, productId: r.productId, source: r.source, hotel: r.hotel, region: r.region, type: r.type, productType: r.productType, name: r.name, price: r.price, status: r.status, nights: r.nights }));
       return sendJson(res, 200, { rows, filtered });

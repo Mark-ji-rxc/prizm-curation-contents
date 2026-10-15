@@ -161,9 +161,26 @@ async function loadRegions() {
     sel.value = regions.some((r) => r.region === prev) ? prev : ''; // 구분 바뀌면 없는 지역은 전체로
   } catch { sel.innerHTML = '<option value="">전체</option>'; }
   refreshTypeCounts(); // 지역 목록 갱신 후 타입 수도 재계산
+  loadHotels();        // 지역이 바뀌면 호텔 목록도 그 지역 것으로
 }
-$('#cRegion').addEventListener('change', () => { refreshTypeCounts(); refreshPickerIfOpen(); });
-$('#cCondition').addEventListener('change', () => { $('#cUntilWrap').classList.toggle('hidden', $('#cCondition').value !== 'until'); refreshTypeCounts(); refreshPickerIfOpen(); });
+// 호텔/여행지 단위 지정 — 위 조건(구분·지역·판매조건·상품타입)에 맞는 것만 보여준다
+async function loadHotels() {
+  const sel = $('#cHotel'); if (!sel) return;
+  const prev = sel.value;
+  const p = new URLSearchParams({ scope: $('#cScope').value, condition: $('#cCondition').value });
+  const rg = ($('#cRegion') && $('#cRegion').value || '').trim(); if (rg) p.set('region', rg);
+  const until = ($('#cUntil') && $('#cUntil').value) || ''; if (until) p.set('until', until);
+  if (selTypes.size) p.set('productTypes', [...selTypes].join(','));
+  try {
+    const { hotels } = await api('/api/products/hotels?' + p.toString());
+    sel.innerHTML = ['<option value="">전체</option>']
+      .concat((hotels || []).map((h) => `<option value="${esc(h.hotel)}">${esc(h.hotel)} (${h.count})</option>`)).join('');
+    sel.value = (hotels || []).some((h) => h.hotel === prev) ? prev : ''; // 조건이 바뀌어 사라진 호텔은 전체로
+  } catch { sel.innerHTML = '<option value="">전체</option>'; }
+}
+$('#cRegion').addEventListener('change', () => { refreshTypeCounts(); loadHotels(); refreshPickerIfOpen(); });
+$('#cHotel') && $('#cHotel').addEventListener('change', () => { refreshPickerIfOpen(); updateGenGate(); });
+$('#cCondition').addEventListener('change', () => { $('#cUntilWrap').classList.toggle('hidden', $('#cCondition').value !== 'until'); refreshTypeCounts(); loadHotels(); refreshPickerIfOpen(); });
 $('#cUntil').addEventListener('change', () => { refreshTypeCounts(); refreshPickerIfOpen(); });
 
 // 생성 모드 토글(주제 자동 생성 / 내 콘텐츠 매칭)
@@ -201,6 +218,8 @@ function commonBody() {
   const b = { scope: $('#cScope').value, region: $('#cRegion').value.trim(), condition: $('#cCondition').value, until: $('#cUntil').value, webSearch: region ? true : $('#cWeb').checked, model: $('#cModel').value, regionMode: region, festival: region && $('#cFestival') && $('#cFestival').checked, ...bodyLenValues() };
   if (!region && pickCodes.size) b.productCodes = [...pickCodes];   // 지역모드는 상품 조건 무시
   if (!region && selTypes.size) b.productTypes = [...selTypes];
+  const ht = ($('#cHotel') && $('#cHotel').value || '').trim();
+  if (!region && ht) b.hotels = [ht];
   return b;
 }
 // 지역 기반 콘텐츠 토글: 웹검색 강제 ON+잠금, 상품 관련 UI 흐리게, 생성 게이트 갱신
@@ -282,7 +301,7 @@ function updateGenGate() {
   ['#genContent', '#matchContent'].forEach((id) => { const b = $(id); if (b) b.disabled = empty; }); // 브리프는 전체 상품 풀을 쓰므로 게이트 제외
   const note = $('#genEmptyNote'); if (note) note.classList.toggle('hidden', !empty);
 }
-$('#typeChips').addEventListener('click', (e) => { const c = e.target.closest('.chip'); if (!c || c.classList.contains('disabled')) return; const t = c.dataset.type; if (selTypes.has(t)) selTypes.delete(t); else selTypes.add(t); c.classList.toggle('sel'); refreshPickerIfOpen(); });
+$('#typeChips').addEventListener('click', (e) => { const c = e.target.closest('.chip'); if (!c || c.classList.contains('disabled')) return; const t = c.dataset.type; if (selTypes.has(t)) selTypes.delete(t); else selTypes.add(t); c.classList.toggle('sel'); loadHotels(); refreshPickerIfOpen(); });
 $('#matchContent').onclick = () => { if (!$('#mBody').value.trim()) return alert('매칭할 콘텐츠 본문을 입력하세요.'); submitGeneration({ mode: 'match', userTitle: $('#mTitle').value.trim(), userBody: $('#mBody').value.trim() }); };
 // ── 브리프 배치(여러 건 동시 지시) ──────────────────────────────────────────
 const BRIEF_MAX = 12;
@@ -335,6 +354,8 @@ async function runBriefBatch() {
   const range = { region: $('#cRegion').value.trim(), condition: $('#cCondition').value, until: $('#cUntil').value };
   if (pickCodes.size) range.productCodes = [...pickCodes];
   if (selTypes.size) range.productTypes = [...selTypes];
+  const bht = ($('#cHotel') && $('#cHotel').value || '').trim();
+  if (bht) range.hotels = [bht];
   genItems = []; renderContentCards(); // 이번 배치 결과로 초기화
   const jobs = briefs.map((b, i) => ({ i, text: b.text, scope: b.scope, status: 'pending', jobId: null, result: null }));
   renderBriefBatch(jobs);
@@ -407,6 +428,8 @@ function pickerQuery() {
   p.set('condition', ($('#cCondition') && $('#cCondition').value) || 'selling');
   const until = ($('#cUntil') && $('#cUntil').value) || ''; if (until) p.set('until', until);
   if (selTypes.size) p.set('productTypes', [...selTypes].join(','));
+  const ht = ($('#cHotel') && $('#cHotel').value || '').trim();
+  if (ht) p.set('hotels', ht);
   return p.toString();
 }
 async function loadPicker() {
