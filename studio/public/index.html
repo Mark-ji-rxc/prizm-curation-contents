@@ -222,6 +222,18 @@
       <button id="briefAdd" class="btn sm ghost">+ 브리프 추가</button>
       <div class="brief-actions">
         <label>브리프당 개수 <input id="bCount" class="input sm" type="number" min="1" max="10" value="1" /></label>
+        <label>본문 길이
+          <select id="bBodyLen" class="input sm">
+            <option value="100-300">기본 (100~300자)</option>
+            <option value="250-450" selected>조금 길게 (250~450자)</option>
+            <option value="400-650">길게 (400~650자)</option>
+            <option value="600-900">아주 길게 (600~900자)</option>
+            <option value="custom">직접 입력…</option>
+          </select>
+        </label>
+        <label id="bBodyLenCustom" class="hidden">직접 글자수
+          <span class="len-inputs"><input id="bBodyMin" class="input sm" type="number" min="20" max="2000" value="250" /> ~ <input id="bBodyMax" class="input sm" type="number" min="20" max="2000" value="450" /></span>
+        </label>
         <button id="genBrief" class="btn primary lg">브리프 전체 생성</button>
         <span class="muted sm">검색을 켜면 사실을 확인해 더 정확하게 씁니다. 생성되는 대로 아래 카드에 쌓이니, 이 탭을 열어둔 채 다른 일을 하셔도 됩니다.</span>
       </div>

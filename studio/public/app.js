@@ -182,13 +182,19 @@ const pickCodes = new Set();
 let pickerRows = [];   // ② 상품 직접 선택 — 상단 조건으로 걸러진 목록
 let allProductRows = []; // ③ 상품 검색 — 조건 무관 전체
 // 본문 글자수 범위(프리셋 "min-max" 또는 직접 입력). 기본 100~300.
-function bodyLenValues() {
-  const v = ($('#cBodyLen') && $('#cBodyLen').value) || '100-300';
-  if (v === 'custom') return { bodyMin: Number($('#cBodyMin').value) || 100, bodyMax: Number($('#cBodyMax').value) || 300 };
+// 본문 길이는 모드마다 입력칸이 다르다(브리프 패널은 #genFields 가 숨겨져서 자기 것을 따로 둔다).
+function bodyLenValues(mode) {
+  const brief = (mode || genMode) === 'brief';
+  const sel = brief ? $('#bBodyLen') : $('#cBodyLen');
+  const minEl = brief ? $('#bBodyMin') : $('#cBodyMin');
+  const maxEl = brief ? $('#bBodyMax') : $('#cBodyMax');
+  const v = (sel && sel.value) || '100-300';
+  if (v === 'custom') return { bodyMin: Number(minEl && minEl.value) || 100, bodyMax: Number(maxEl && maxEl.value) || 300 };
   const [a, b] = v.split('-').map(Number);
   return { bodyMin: a || 100, bodyMax: b || 300 };
 }
 $('#cBodyLen') && $('#cBodyLen').addEventListener('change', () => { $('#cBodyLenCustom').classList.toggle('hidden', $('#cBodyLen').value !== 'custom'); });
+$('#bBodyLen') && $('#bBodyLen').addEventListener('change', () => { $('#bBodyLenCustom').classList.toggle('hidden', $('#bBodyLen').value !== 'custom'); });
 function regionModeOn() { return !!($('#cRegionMode') && $('#cRegionMode').checked); }
 function commonBody() {
   const region = regionModeOn();
@@ -323,7 +329,7 @@ async function runBriefBatch() {
   const count = $('#bCount').value;
   const webOn = $('#cWeb') ? $('#cWeb').checked : true;
   const model = $('#cModel').value;
-  const lens = bodyLenValues();
+  const lens = bodyLenValues('brief');
   // 위의 "대상 상품 범위"(지역·판매조건·상품타입·상품 직접 선택)를 브리프 생성에도 그대로 적용한다.
   // scope 는 브리프 행마다 따로 고를 수 있어 아래에서 덮어쓴다. (지역기반 모드는 브리프의 모드가 아니라 제외)
   const range = { region: $('#cRegion').value.trim(), condition: $('#cCondition').value, until: $('#cUntil').value };
