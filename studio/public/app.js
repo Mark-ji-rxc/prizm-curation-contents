@@ -324,13 +324,18 @@ async function runBriefBatch() {
   const webOn = $('#cWeb') ? $('#cWeb').checked : true;
   const model = $('#cModel').value;
   const lens = bodyLenValues();
+  // 위의 "대상 상품 범위"(지역·판매조건·상품타입·상품 직접 선택)를 브리프 생성에도 그대로 적용한다.
+  // scope 는 브리프 행마다 따로 고를 수 있어 아래에서 덮어쓴다. (지역기반 모드는 브리프의 모드가 아니라 제외)
+  const range = { region: $('#cRegion').value.trim(), condition: $('#cCondition').value, until: $('#cUntil').value };
+  if (pickCodes.size) range.productCodes = [...pickCodes];
+  if (selTypes.size) range.productTypes = [...selTypes];
   genItems = []; renderContentCards(); // 이번 배치 결과로 초기화
   const jobs = briefs.map((b, i) => ({ i, text: b.text, scope: b.scope, status: 'pending', jobId: null, result: null }));
   renderBriefBatch(jobs);
   for (const j of jobs) {
     const scope = j.scope || $('#cScope').value;
     try {
-      const body = { mode: 'brief', brief: j.text, count, scope, webSearch: webOn, model, ...lens };
+      const body = { ...range, mode: 'brief', brief: j.text, count, scope, webSearch: webOn, model, ...lens };
       const { jobId, auto } = await api('/api/content/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
       j.jobId = jobId; j.status = 'running'; j.auto = auto; renderBriefBatch(jobs);
       if (!auto) showJobBanner($('#contentJobBanner'), '콘텐츠 생성 요청 처리해줘', '자동 처리가 꺼져 있어요. 이 문구를 Claude Code에 입력하면 대기 중인 브리프가 처리됩니다.');

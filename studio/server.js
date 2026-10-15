@@ -964,13 +964,16 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
       '이 요청은 "브리프(지시)로 콘텐츠 생성"입니다. input.brief 의 방향·컨셉·스토리를 살려 콘텐츠를 만들어 이 파일을 덮어써 저장하세요.',
       `0) products 범위: ${scopeDesc}. 매칭은 이 목록 안에서.`,
       '1) input.brief 를 해석해 핵심 컨셉·후킹 포인트를 잡는다. 브리프에 담긴 스토리(현지 유래·명물·계절·식감 등)를 그대로 살린다.',
+      (productCodes && productCodes.length)
+        ? `★ 상품 지정됨(${items.length}개): 사용자가 직접 고른 상품이다. 이 상품들을 "주인공"으로 삼아 브리프의 방향·컨셉에 맞춰 쓴다. 다른 상품을 끌어오지 말고, 이 목록 안에서 상품의 실제 혜택·구성(products[].name/benefits/flags)을 근거로 구체적으로 풀어낸다. matched 에도 이 상품들을 담는다.`
+        : '',
       webLine || '※ 사실·수치·현지 이야기는 정확히. 모르면 단정하지 말 것.',
       `2) input.count 개의 콘텐츠를 친근한 하우스 보이스로 쓴다: 제목 8~16자(임팩트·호기심), 본문 ${bodyRule}(구체적·생생·구매 동기). 브리프의 결을 살려 "그곳에 가고/사고 싶게".`,
       toneRule,
       priceRule,
       bodyLenNote,
       '3) 각 콘텐츠에 titleAlternatives(제목 다른 후보 2~4개, 각 후보에 한 줄 근거)를 포함한다.',
-      '4) 브리프·여행지에 맞는 products 를 matched 에(관련 상품만, productId·productCode 둘 다). hotels(중복 제거)도 채운다. input.persona 있으면 화자로, form 은 어울리는 형으로.',
+      '4) 브리프·여행지에 맞는 products 를 matched 에 담는다(★ productId 숫자 문자열만 나열. 다른 필드는 서버가 채움). hotels(중복 제거)도 채운다. input.persona 있으면 화자로, form 은 어울리는 형으로.',
       refLine,
       factRule,
       statusRule,
