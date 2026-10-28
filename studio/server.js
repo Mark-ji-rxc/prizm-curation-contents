@@ -1144,7 +1144,7 @@ function buildContentJobCore({ generationStrategy, strictFilters, provider, edit
     referenceExamples: references,
     productCount: regionMode ? Math.max(1, (regionCands || []).length) : items.length,
     products: jobProducts,
-    instructions: instructions + (generationStrategy === 'auto' ? '\n\n' + contentStrategy.instructions({generationStrategy}) : ''),
+    instructions: instructions + (generationStrategy === 'auto' ? '\n\n' + contentStrategy.instructions({generationStrategy,regionMode}) : ''),
     output: null,
   });
 }

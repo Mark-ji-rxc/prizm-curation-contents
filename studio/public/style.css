@@ -491,3 +491,7 @@ label.block { margin-top: var(--sp-2); }
 .cal-badge.cal-ended { background: color-mix(in srgb, var(--muted) 18%, transparent); color: var(--muted); }
 .cal-badge.cal-startrow { background: var(--accent); color: var(--accent-ink); }
 @media (max-width: 720px) { .cal-lm { display: none; } .cal-cell { min-height: 56px; } }
+
+/* Separate generation strategy from the product scope above. */
+.generation-strategy { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 24px 0 18px; }
+.generation-strategy > b { font-size: 15px; font-weight: 700; }

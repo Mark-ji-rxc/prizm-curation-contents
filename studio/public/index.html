@@ -73,7 +73,7 @@
             <option value="both">둘 다 (Claude + GPT)</option>
           </select>
         </label>
-        <label>Claude 생성 속도
+        <label id="claudeModelWrap">Claude 생성 속도
           <select id="cModel" class="input"><option value="opus">품질 우선 (Opus)</option><option value="sonnet">빠르게 (Sonnet)</option></select>
         </label>
       </div>
@@ -103,12 +103,14 @@
         </select>
       </label>
       <label id="cUntilWrap" class="hidden">이 날짜까지 판매(이후까지)
-        <input id="cUntil" class="input" type="date" />
+        <input id="cUntil" class="input" type="date" aria-label="판매 기준일 달력" />
+        <input id="cUntilText" class="input" type="text" inputmode="numeric" placeholder="직접 입력: 2026-11-15" aria-label="판매 기준일 직접 입력" autocomplete="off" />
+        <span id="cUntilNote" class="muted sm" role="status">달력에서 선택하거나 YYYY-MM-DD로 직접 입력하세요.</span>
       </label>
     </div>
 
     <label class="region-mode"><input type="checkbox" id="cRegionMode" /> <b>지역 기반 콘텐츠</b> <span class="muted sm">— 상품 없이 지역 자체(특산물·장점·가야 할 이유·요즘 트렌드)를 주제로. 인터넷 검색 필수</span></label>
-    <label class="region-sub" id="cFestivalWrap"><input type="checkbox" id="cFestival" disabled /> 지역 축제 소개 포함 <span class="muted sm">— 소도시 포함 · 검색시점 4개월 이내 축제 · 인터넷 검색으로 상세 조사</span></label>
+    <label class="region-sub" id="cFestivalWrap"><input type="checkbox" id="cFestival" disabled /> 지역 축제 소개 포함 <span class="muted sm">— 각 글을 축제 중심으로 작성 · 소도시 포함 · 검색시점 4개월 이내 · 확인된 축제가 없으면 지역의 계절 매력으로 대체</span></label>
 
     <div id="productScope">
     <label class="block">상품 타입 (선택 · 여러 개 가능 · 비우면 전체)
@@ -150,7 +152,7 @@
 
     <!-- generate 모드 전용 -->
     <div id="genFields">
-      <label>생성 방식 <select id="cStrategy" class="input"><option value="manual">조건에 맞춰 생성하기</option><option value="auto">알아서 생성하기</option></select></label>
+      <label class="generation-strategy"><b>생성 방식</b> <select id="cStrategy" class="input"><option value="manual">조건에 맞춰 생성하기</option><option value="auto">알아서 생성하기</option></select></label>
       <p id="autoStrategyNote" class="muted sm hidden">리포트와 수정 사례를 참고해 주제·글 길이·형·화자를 정합니다. 국내 300~500자 / 해외 300~600자, 제목 14~19자 목표. 아래 상품 범위는 모두 유지하며, 주제 개수만 직접 정하세요. 성과 향상을 보장하지는 않습니다.</p>
       <div class="gen-group">
       <div class="gen-group-h">콘텐츠 생성 조건 <span class="muted sm">— 주제·형식·화자</span></div>
@@ -480,6 +482,7 @@
 <div id="productModal" class="modal hidden"><div class="modal-card"><button class="modal-close" aria-label="닫기">✕</button><div id="productModalBody"></div></div></div>
 
 <script src="/preview.js"></script>
+<script src="/sale-date.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

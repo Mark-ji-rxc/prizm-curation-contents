@@ -166,7 +166,10 @@ async function loadRegions() {
 // 호텔/여행지 단위 지정(다중) — 위 조건(구분·지역·판매조건·상품타입)에 맞는 것만 보여준다
 const selHotels = new Set();
 let hotelRows = [];
+let hotelRequest=0;
 async function loadHotels() {
+  const ticket=++hotelRequest;
+  if(!saleDateReady()){if($('#hotelList'))$('#hotelList').textContent='판매 기준일을 먼저 입력하세요.';return;}
   const el = $('#hotelList'); if (!el) return;
   // 패널이 닫혀 있고 선택도 없으면 굳이 받아오지 않는다(조건 바꿀 때마다 호출되는 자리라서).
   const panelOpen = $('#hotelPanel') && !$('#hotelPanel').classList.contains('hidden');
@@ -177,11 +180,12 @@ async function loadHotels() {
   if (selTypes.size) p.set('productTypes', [...selTypes].join(','));
   try {
     const { hotels } = await api('/api/products/hotels?' + p.toString());
+    if(ticket!==hotelRequest)return;
     hotelRows = hotels || [];
     const avail = new Set(hotelRows.map((h) => h.hotel));
     [...selHotels].forEach((h) => { if (!avail.has(h)) selHotels.delete(h); }); // 조건에서 사라진 선택은 해제
     renderHotelPick();
-  } catch { hotelRows = []; renderHotelPick(); }
+  } catch { if(ticket!==hotelRequest)return;hotelRows = []; renderHotelPick(); }
 }
 function renderHotelPick() {
   const el = $('#hotelList'); if (!el) return;
@@ -203,6 +207,7 @@ function renderHotelPick() {
   });
 }
 $('#toggleHotelPicker') && ($('#toggleHotelPicker').onclick = async () => {
+  if(!saleDateReady()){requestSaleDate();return;}
   const el = $('#hotelPanel'); const show = el.classList.contains('hidden');
   el.classList.toggle('hidden');
   if (show) await loadHotels();
@@ -211,7 +216,23 @@ $('#hpSearch') && $('#hpSearch').addEventListener('input', renderHotelPick);
 $('#hpClear') && ($('#hpClear').onclick = () => { selHotels.clear(); renderHotelPick(); refreshPickerIfOpen(); updateGenGate(); });
 $('#cRegion').addEventListener('change', () => { refreshTypeCounts(); loadHotels(); refreshPickerIfOpen(); });
 $('#cCondition').addEventListener('change', () => { $('#cUntilWrap').classList.toggle('hidden', $('#cCondition').value !== 'until'); refreshTypeCounts(); loadHotels(); refreshPickerIfOpen(); });
-$('#cUntil').addEventListener('change', () => { refreshTypeCounts(); refreshPickerIfOpen(); });
+function saleDateReady() { return SaleDate.ready($('#cCondition').value,$('#cUntil').value); }
+function requestSaleDate() {
+  $('#cUntilNote').textContent='판매 기준일을 먼저 입력하세요. 날짜 입력 후 상품 목록이 갱신됩니다.';
+  $('#cUntilText').focus();
+}
+function saleDateChanged(event) {
+  const direct=event.target.id==='cUntilText';
+  const value=SaleDate.normalize(event.target.value);
+  if(direct)$('#cUntil').value=value;
+  else $('#cUntilText').value=value;
+  $('#cUntilNote').textContent=value?'이 날짜를 기준으로 상품·타입·호텔 목록을 갱신합니다.':'달력에서 선택하거나 YYYY-MM-DD로 직접 입력하세요.';
+  refreshTypeCounts(); loadHotels(); refreshPickerIfOpen();
+}
+$('#cUntil').addEventListener('input',saleDateChanged);
+$('#cUntil').addEventListener('change',saleDateChanged);
+$('#cUntilText').addEventListener('input',saleDateChanged);
+$('#cUntilText').addEventListener('blur',()=>{ const d=SaleDate.normalize($('#cUntilText').value); if(d)$('#cUntilText').value=d; });
 
 // 생성 모드 토글(주제 자동 생성 / 내 콘텐츠 매칭)
 let genMode = 'generate';
@@ -250,6 +271,7 @@ function chosenProviders() { return $('#cProvider').value === 'both' ? ['claude'
 function updateProviderUI() {
   const value = $('#cProvider').value;
   $('#cModel').disabled = value === 'codex';
+  $('#claudeModelWrap').classList.toggle('hidden', value === 'codex');
   $('#gptEditWrap').classList.toggle('hidden', value === 'claude');
   $('#cGptEdit').disabled = value === 'claude' || genMode === 'match';
   $('#providerNote').textContent = value === 'both'
@@ -264,7 +286,7 @@ try { $('#cGptEdit').checked = localStorage.getItem('prizm-gpt-edit') === 'true'
 updateProviderUI();
 function manualContentPhrase(jobId, jobPath) { return `콘텐츠 생성 요청 ${jobPath || `jobs/${jobId}.json`}을 열고 instructions 지침에 맞게 처리한 뒤 해당 파일의 status를 done으로 바꾸고 output을 저장해줘`; }
 function commonBody() {
-  const region = genMode !== 'generate' && regionModeOn();
+  const region = regionModeOn();
   const b = { generationStrategy: genMode === 'generate' ? $('#cStrategy').value : null, editEnabled: $('#cGptEdit').checked, provider: $('#cProvider').value, scope: $('#cScope').value, region: $('#cRegion').value.trim(), condition: $('#cCondition').value, until: $('#cUntil').value, webSearch: region ? true : $('#cWeb').checked, model: $('#cModel').value, regionMode: region, festival: region && $('#cFestival') && $('#cFestival').checked, ...bodyLenValues() };
   if (!region && pickCodes.size) b.productCodes = [...pickCodes];   // 지역모드는 상품 조건 무시
   if (!region && selTypes.size) b.productTypes = [...selTypes];
@@ -277,9 +299,11 @@ $('#cRegionMode') && $('#cRegionMode').addEventListener('change', () => {
   const web = $('#cWeb'); if (web) { if (on) { web.checked = true; web.disabled = true; } else { web.disabled = false; } }
   const fest = $('#cFestival'); if (fest) { fest.disabled = !on; if (!on) fest.checked = false; } // 축제 옵션은 지역모드에서만
   const ps = $('#productScope'); if (ps) ps.classList.toggle('dimmed', on);
+  updateGenerationStrategy();
   updateGenGate();
 });
 async function submitGeneration(extra) {
+  if(!regionModeOn() && !saleDateReady()){requestSaleDate();return;}
   if (typeTotal === 0 && !pickCodes.size && !regionModeOn()) return alert('선택한 지역·판매조건에 해당하는 상품이 없어 콘텐츠를 생성할 수 없어요. 조건을 바꿔주세요.');
   const body = { ...commonBody(), ...extra };
   // 생성 scope로 분류를 미리 기록: 국내 생성=국내 호텔, 해외 생성=해외 여행상품.
@@ -313,16 +337,20 @@ async function submitGeneration(extra) {
   } catch (e) { banner.innerHTML = '오류: ' + esc(e.message); }
 }
 function updateGenerationStrategy() {
+  const region=regionModeOn();
   const auto=$('#cStrategy').value==='auto';
+  $('#cStrategy').disabled=false;
   $('#autoStrategyNote').classList.toggle('hidden',!auto);
+  $('#autoStrategyNote').textContent=region
+    ? '리포트와 수정 사례를 참고해 지역의 주제·글 길이·형·화자를 정합니다. 국내 300~500자 / 해외 300~600자, 제목 14~19자 목표. 축제 포함 시 확인된 축제를 중심으로 작성하며, 상품 광고는 넣지 않습니다. 주제 개수만 직접 정하세요.'
+    : '리포트와 수정 사례를 참고해 주제·글 길이·형·화자를 정합니다. 국내 300~500자 / 해외 300~600자, 제목 14~19자 목표. 위 상품 범위는 모두 유지하며, 주제 개수만 직접 정하세요. 성과 향상을 보장하지는 않습니다.';
   for(const id of ['cPerTopic','cBodyLen','cTopic','cPersona','formChips']) $('#'+id).closest('label').classList.toggle('hidden',auto);
   $('#themePresets').classList.toggle('hidden',auto);
   $('#cBodyLenCustom').classList.toggle('hidden',auto || $('#cBodyLen').value!=='custom');
-  $('#cRegionMode').closest('label').classList.toggle('hidden',genMode === 'generate');
-  $('#cFestivalWrap').classList.toggle('hidden',genMode === 'generate');
-  $('#productScope').classList.remove('dimmed');
-  $('#cWeb').disabled=false;
-  $('#genContent').textContent=auto?'알아서 생성하기':'조건에 맞춰 생성하기';
+  $('#productScope').classList.toggle('dimmed',region);
+  if(region)$('#cWeb').checked=true;
+  $('#cWeb').disabled=region;
+  $('#genContent').textContent=region?(auto?'지역·축제 알아서 생성하기':'지역·축제 콘텐츠 생성'):auto?'알아서 생성하기':'조건에 맞춰 생성하기';
 }
 $('#cStrategy').addEventListener('change',updateGenerationStrategy);
 updateGenerationStrategy();
@@ -345,14 +373,17 @@ async function loadProductTypes() {
   try { const { types } = await api('/api/product-types'); allProductTypes = types || []; renderTypeChips(); } catch {}
 }
 // 지역/판매조건/날짜에 맞는 타입별 상품 수를 서버에서 받아 칩 count·활성화·생성가능 여부 갱신
+let typeCountsRequest=0;
 async function refreshTypeCounts() {
+  const ticket=++typeCountsRequest;
+  if(!saleDateReady()){typeCounts=null;typeTotal=null;renderTypeChips();updateGenGate();return;}
   const scope = ($('#cScope') && $('#cScope').value) || 'domestic';
   const region = ($('#cRegion') && $('#cRegion').value) || '';
   const condition = ($('#cCondition') && $('#cCondition').value) || 'selling';
   const until = ($('#cUntil') && $('#cUntil').value) || '';
   const qs = `scope=${encodeURIComponent(scope)}&region=${encodeURIComponent(region)}&condition=${encodeURIComponent(condition)}&until=${encodeURIComponent(until)}`;
-  try { const r = await api('/api/content/type-counts?' + qs); typeCounts = r.counts || {}; typeTotal = r.total || 0; }
-  catch { typeCounts = null; typeTotal = null; }
+  try { const r = await api('/api/content/type-counts?' + qs); if(ticket!==typeCountsRequest)return; typeCounts = r.counts || {}; typeTotal = r.total || 0; }
+  catch { if(ticket!==typeCountsRequest)return; typeCounts = null; typeTotal = null; }
   renderTypeChips(); updateGenGate();
 }
 // 선택한 구분(국내/해외)에 해당하는 타입만 노출(both는 항상). 구분 밖 선택은 해제. 0개 타입은 비활성(선택 불가).
@@ -371,9 +402,10 @@ function renderTypeChips() {
 }
 // 전체 상품이 0개(직접 선택도 없음)면 콘텐츠 생성 버튼들을 비활성화 + 안내
 function updateGenGate() {
+  const dateMissing=!regionModeOn() && !saleDateReady();
   const empty = (typeTotal === 0) && !pickCodes.size && !regionModeOn(); // 조건에 맞는 상품이 하나도 없음(지역모드는 상품 불필요)
-  ['#genContent', '#matchContent'].forEach((id) => { const b = $(id); if (b) b.disabled = empty; }); // 브리프는 전체 상품 풀을 쓰므로 게이트 제외
-  const note = $('#genEmptyNote'); if (note) note.classList.toggle('hidden', !empty);
+  ['#genContent', '#matchContent'].forEach((id) => { const b = $(id); if (b) b.disabled = empty || dateMissing; }); // 브리프는 전체 상품 풀을 쓰므로 게이트 제외
+  const note = $('#genEmptyNote'); if (note) {note.textContent=dateMissing?'판매 기준일을 먼저 입력하세요.':'선택한 지역·판매조건에 해당하는 상품이 없어 생성할 수 없어요. 조건을 바꿔주세요.';note.classList.toggle('hidden', !empty && !dateMissing);}
 }
 $('#typeChips').addEventListener('click', (e) => { const c = e.target.closest('.chip'); if (!c || c.classList.contains('disabled')) return; const t = c.dataset.type; if (selTypes.has(t)) selTypes.delete(t); else selTypes.add(t); c.classList.toggle('sel'); loadHotels(); refreshPickerIfOpen(); });
 $('#matchContent').onclick = () => { if (!$('#mBody').value.trim()) return alert('매칭할 콘텐츠 본문을 입력하세요.'); submitGeneration({ mode: 'match', userTitle: $('#mTitle').value.trim(), userBody: $('#mBody').value.trim() }); };
@@ -416,6 +448,7 @@ function pollBriefJob(j, jobs, scope) {
   }, 2000);
 }
 async function runBriefBatch() {
+  if(!saleDateReady()){requestSaleDate();return;}
   const rows = $$('#briefList .brief-row').map((r) => ({ text: r.querySelector('.brief-text').value.trim(), scope: r.querySelector('.brief-scope').value }));
   const briefs = rows.filter((r) => r.text);
   if (!briefs.length) return alert('브리프를 1건 이상 입력하세요.');
@@ -490,7 +523,7 @@ async function loadRecentJob(id) {
 }
 $('#toggleRecent') && ($('#toggleRecent').onclick = () => { const el = $('#recentPanel'); const show = el.classList.contains('hidden'); el.classList.toggle('hidden'); if (show) loadRecent(); else clearTimeout(recentTimer); });
 
-$('#togglePicker').onclick = async () => { const el = $('#pickerPanel'); const show = el.classList.contains('hidden'); el.classList.toggle('hidden'); if (show) await loadPicker(); };
+$('#togglePicker').onclick = async () => { if(!saleDateReady()){requestSaleDate();return;} const el = $('#pickerPanel'); const show = el.classList.contains('hidden'); el.classList.toggle('hidden'); if (show) await loadPicker(); };
 $('#pkClear').onclick = () => { pickCodes.clear(); $('#pickCount').textContent = 0; renderPicker(); updateGenGate(); };
 ['#pkSource', '#pkHotel', '#pkType', '#pkKeyword'].forEach((s) => $(s).addEventListener('input', () => { if (s === '#pkSource' || s === '#pkType' || s === '#pkHotel') fillPickHotels(); renderPicker(); }));
 // 위의 "대상 상품 범위"(구분·지역·판매조건·상품타입)를 그대로 적용해서 받아온다 —
@@ -505,16 +538,20 @@ function pickerQuery() {
   if (selHotels.size) p.set('hotels', [...selHotels].join('|'));
   return p.toString();
 }
+let pickerRequest=0;
 async function loadPicker() {
+  const ticket=++pickerRequest;
+  if(!saleDateReady()){$('#pickerList').textContent='판매 기준일을 먼저 입력하세요.';return;}
   try {
     const { rows } = await api('/api/products/pick?' + pickerQuery());
+    if(ticket!==pickerRequest)return;
     pickerRows = rows;
     // 조건에서 벗어난 선택은 해제(목록에 없는데 선택만 남아 있으면 혼란)
     const avail = new Set(rows.map((r) => r.productCode || r.productId));
     [...pickCodes].forEach((c) => { if (!avail.has(c)) pickCodes.delete(c); });
     $('#pickCount').textContent = pickCodes.size;
     fillPickTypes(); fillPickHotels(); renderPicker(); updateGenGate();
-  } catch (e) { $('#pickerList').innerHTML = '오류: ' + esc(e.message); }
+  } catch (e) { if(ticket!==pickerRequest)return;$('#pickerList').innerHTML = '오류: ' + esc(e.message); }
 }
 // 상단 조건이 바뀌면 열려 있는 picker 목록도 따라서 갱신
 function refreshPickerIfOpen() {

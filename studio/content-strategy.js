@@ -1,16 +1,27 @@
 'use strict';
 const editorial = require('./gpt-editorial');
+const saleDate = require('./public/sale-date');
 const report = {
  file: '/Users/rxc/Desktop/claude code/funnel_report/reports/prizm_post_writing_2026-10-25.html',
  period: '2026-09-11~2026-10-25', sample: '국내83/해외43, 노출 유저150명 이상', version: '2026-10-28-v1',
 };
 function prepare(options) {
  const o={...options};
+ // Region/festival generation keeps its original pool and skips product date validation.
+ if(o.regionMode){
+  if(o.mode && o.mode!=='generate')return o;
+  if(!o.generationStrategy)return o;
+  if(!['auto','manual'].includes(o.generationStrategy))throw new Error('생성 방식을 확인해 주세요.');
+  if(o.generationStrategy==='auto')Object.assign(o,{topic:'',forms:[],form:'',persona:'',perTopic:1,bodyMin:300,bodyMax:o.scope==='overseas'?600:500});
+  return o;
+ }
+ if(!saleDate.ready(o.condition,o.until)) throw new Error('판매 기준일을 입력하세요. 날짜 형식은 YYYY-MM-DD입니다.');
+ if(o.condition==='until')o.until=saleDate.normalize(o.until);
  if (o.mode && o.mode !== 'generate') return o;
  if (!o.generationStrategy) return o; // legacy jobs/briefs keep existing semantics
  if (!['auto','manual'].includes(o.generationStrategy)) throw new Error('생성 방식은 알아서 생성하기 또는 조건에 맞춰 생성하기를 선택해 주세요.');
  o.strictFilters=true;
- // Both new generation choices must keep the selected product pool, never region-only mode.
+ // Product-based generation keeps the selected pool; explicit region mode returned above.
  o.regionMode=false;o.festival=false;
  if(o.generationStrategy==='auto') Object.assign(o,{
   topic:'',forms:[],form:'',persona:'',perTopic:1,
@@ -30,5 +41,12 @@ const guide=`알아서 생성하기 — 리포트 기반 작성 전략
 7. 이모지는 의미 있는 항목에 절제해서 사용. Markdown 굵은 글씨/제목/HTML 대신 일반 텍스트와 줄바꿈. 클릭·매출 상승을 보장하는 문구 금지.
 8. 피드 위치·발행 시점·첫 이미지와 상품의 실제 주문은 글만으로 결정되지 않는다. 게시글 작성만 수행하고 발행/미디어를 자동 변경하지 않는다.
 `;
-function instructions(o){return o.generationStrategy==='auto'?guide+'\n\n사용자 수정 사례에서 축적한 작성 스타일:\n'+editorial.guide:'';}
+const regionGuide=`알아서 생성하기 — 지역·축제 작성 전략
+지역/축제 콘텐츠의 기존 검색·사실확인·상품광고 금지 원칙을 우선한다. 상품을 선택하거나 구매를 권하는 본문으로 바꾸지 않는다.
+리포트의 클릭 관측과 사용자 수정 사례를 참고해 지역/방문 동기 중심 제목, 구체적인 도입, 짧은 문단, 항목별 매력과 독자 효용, 상황별 선택 기준, 자연스러운 마무리를 적용한다. 관측은 인과효과나 성과 보장이 아니다.
+input의 국내300~500자/해외300~600자 범위를 지키고 제목은14~19자를 목표로 한다(기존8~16자보다 우선). 주제·형·화자·전개는 현재 검색 근거와 정보량에 맞게 스스로 정한다.
+축제 포함이면 각 글의 중심은 확인된 축제다. 개최기간·개최지·핵심 볼거리를 확인하고 주변 먹거리·명소는 관련된 경우만 보조로 연결한다. 축제 미확인 시 기존 계절 매력 대체 규칙을 따른다. 축제 미선택이면 지역의 다양한 방문 동기를 고른다.
+상품은 본문에서 나열/가격/할인/예약/구매를 유도하지 않고 지리적으로 맞는 실제 상품만 matched로 연결한다. 없으면 빈 배열 허용. 지역 범위를 임의로 확대하지 않는다. Markdown 굵은 글씨/HTML 없이 줄바꿈과 절제된 이모지를 사용한다.
+`;
+function instructions(o){if(o.generationStrategy==='auto'&&o.regionMode)return regionGuide;return o.generationStrategy==='auto'?guide+'\n\n사용자 수정 사례에서 축적한 작성 스타일:\n'+editorial.guide:'';}
 module.exports={prepare,instructions,report};
