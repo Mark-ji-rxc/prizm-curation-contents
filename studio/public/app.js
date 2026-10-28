@@ -222,6 +222,8 @@ $('#genModeTabs').addEventListener('click', (e) => {
   $('#genFields').classList.toggle('hidden', genMode !== 'generate');
   $('#matchFields').classList.toggle('hidden', genMode !== 'match');
   $('#briefFields').classList.toggle('hidden', genMode !== 'brief');
+  updateProviderUI();
+  updateGenerationStrategy();
 });
 
 // 상품 직접 선택(피커) — 선택 시 그 상품들로만 생성/매칭
@@ -243,9 +245,27 @@ function bodyLenValues(mode) {
 $('#cBodyLen') && $('#cBodyLen').addEventListener('change', () => { $('#cBodyLenCustom').classList.toggle('hidden', $('#cBodyLen').value !== 'custom'); });
 $('#bBodyLen') && $('#bBodyLen').addEventListener('change', () => { $('#bBodyLenCustom').classList.toggle('hidden', $('#bBodyLen').value !== 'custom'); });
 function regionModeOn() { return !!($('#cRegionMode') && $('#cRegionMode').checked); }
+function providerLabel(provider) { return provider === 'codex' ? 'GPT' : 'Claude'; }
+function chosenProviders() { return $('#cProvider').value === 'both' ? ['claude', 'codex'] : [$('#cProvider').value]; }
+function updateProviderUI() {
+  const value = $('#cProvider').value;
+  $('#cModel').disabled = value === 'codex';
+  $('#gptEditWrap').classList.toggle('hidden', value === 'claude');
+  $('#cGptEdit').disabled = value === 'claude' || genMode === 'match';
+  $('#providerNote').textContent = value === 'both'
+    ? '같은 상품·작성 조건으로 각각 생성합니다. 결과 수는 도구별 요청 개수이며, 두 계정의 사용량이 각각 사용됩니다.'
+    : value === 'codex' ? 'GPT 전용 지침과 예시로 작성합니다. 편집을 체크하면 초안을 한 번 더 다듬으며, 선택한 글자수는 그대로 유지됩니다.'
+    : 'Claude의 선택한 모델로 생성합니다.';
+}
+$('#cProvider').addEventListener('change', () => { try { localStorage.setItem('prizm-content-provider', $('#cProvider').value); } catch {} updateProviderUI(); });
+try { const saved = localStorage.getItem('prizm-content-provider'); if (['claude', 'codex', 'both'].includes(saved)) $('#cProvider').value = saved; } catch {}
+$('#cGptEdit').addEventListener('change', () => { try { localStorage.setItem('prizm-gpt-edit', String($('#cGptEdit').checked)); } catch {} });
+try { $('#cGptEdit').checked = localStorage.getItem('prizm-gpt-edit') === 'true'; } catch {}
+updateProviderUI();
+function manualContentPhrase(jobId, jobPath) { return `콘텐츠 생성 요청 ${jobPath || `jobs/${jobId}.json`}을 열고 instructions 지침에 맞게 처리한 뒤 해당 파일의 status를 done으로 바꾸고 output을 저장해줘`; }
 function commonBody() {
-  const region = regionModeOn();
-  const b = { scope: $('#cScope').value, region: $('#cRegion').value.trim(), condition: $('#cCondition').value, until: $('#cUntil').value, webSearch: region ? true : $('#cWeb').checked, model: $('#cModel').value, regionMode: region, festival: region && $('#cFestival') && $('#cFestival').checked, ...bodyLenValues() };
+  const region = genMode !== 'generate' && regionModeOn();
+  const b = { generationStrategy: genMode === 'generate' ? $('#cStrategy').value : null, editEnabled: $('#cGptEdit').checked, provider: $('#cProvider').value, scope: $('#cScope').value, region: $('#cRegion').value.trim(), condition: $('#cCondition').value, until: $('#cUntil').value, webSearch: region ? true : $('#cWeb').checked, model: $('#cModel').value, regionMode: region, festival: region && $('#cFestival') && $('#cFestival').checked, ...bodyLenValues() };
   if (!region && pickCodes.size) b.productCodes = [...pickCodes];   // 지역모드는 상품 조건 무시
   if (!region && selTypes.size) b.productTypes = [...selTypes];
   if (!region && selHotels.size) b.hotels = [...selHotels];
@@ -269,18 +289,43 @@ async function submitGeneration(extra) {
   const banner = $('#contentJobBanner');
   banner.classList.remove('hidden'); banner.innerHTML = '<span class="spinner"></span> 요청 생성 중…';
   try {
-    const { jobId, productCount, auto } = await api('/api/content/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const result = await api('/api/content/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const runs = result.jobs || [result];
+    const productCount = result.productCount;
     const scopeNote = pickCodes.size ? `선택 상품 ${productCount}개` : `상품 ${productCount}개`;
+    if (body.generationStrategy === 'auto') body.perTopic=1;
     const total = (Number(body.count) || 0) * (Number(body.perTopic) || 1);
     const web = body.webSearch ? ' · 검색' : '';
     const note = extra.mode === 'match' ? `${scopeNote} 중 매칭 중…`
       : extra.mode === 'brief' ? `브리프로 콘텐츠 ${body.count}편 생성 중${web}`
       : `${scopeNote} 기준 · 주제 ${body.count}개 × ${body.perTopic || 1} = 콘텐츠 ${total}편${web}`;
-    if (auto) autoBanner(banner, note);
-    else showJobBanner(banner, '콘텐츠 생성 요청 처리해줘', note);
-    pollContent(jobId, banner, auto, stampCat, note);
+    const dual = runs.length > 1;
+    if (dual) { genItems = []; renderContentCards(); banner.innerHTML = ''; }
+    for (const run of runs) {
+      const target = dual ? document.createElement('div') : banner;
+      if (dual) { target.style.marginBottom = '12px'; banner.appendChild(target); }
+      const provider = run.provider || 'claude';
+      const runNote = `${providerLabel(provider)} · ${note}`;
+      if (run.auto) autoBanner(target, runNote, provider);
+      else showJobBanner(target, manualContentPhrase(run.jobId, run.jobPath), runNote, provider);
+      pollContent(run.jobId, target, run.auto, stampCat, runNote, provider, dual);
+    }
   } catch (e) { banner.innerHTML = '오류: ' + esc(e.message); }
 }
+function updateGenerationStrategy() {
+  const auto=$('#cStrategy').value==='auto';
+  $('#autoStrategyNote').classList.toggle('hidden',!auto);
+  for(const id of ['cPerTopic','cBodyLen','cTopic','cPersona','formChips']) $('#'+id).closest('label').classList.toggle('hidden',auto);
+  $('#themePresets').classList.toggle('hidden',auto);
+  $('#cBodyLenCustom').classList.toggle('hidden',auto || $('#cBodyLen').value!=='custom');
+  $('#cRegionMode').closest('label').classList.toggle('hidden',genMode === 'generate');
+  $('#cFestivalWrap').classList.toggle('hidden',genMode === 'generate');
+  $('#productScope').classList.remove('dimmed');
+  $('#cWeb').disabled=false;
+  $('#genContent').textContent=auto?'알아서 생성하기':'조건에 맞춰 생성하기';
+}
+$('#cStrategy').addEventListener('change',updateGenerationStrategy);
+updateGenerationStrategy();
 $('#genContent').onclick = () => submitGeneration({ mode: 'generate', topic: $('#cTopic').value.trim(), count: $('#cCount').value, perTopic: $('#cPerTopic').value, forms: [...selForms], persona: $('#cPersona').value.trim(), model: $('#cModel').value });
 
 // 본문 형 다중선택(칩)
@@ -350,7 +395,7 @@ function renderBriefBatch(jobs) {
   const done = jobs.filter((j) => j.status === 'done').length, fail = jobs.filter((j) => j.status === 'failed').length;
   const ICON = { pending: '⏳ 대기', running: '<span class="spinner"></span> 생성 중', done: '✅ 완료', failed: '⚠ 실패' };
   el.innerHTML = `<div class="bb-head">브리프 배치 — 완료 <b>${done}</b> / 전체 ${jobs.length}${fail ? ` · 실패 ${fail}` : ''} <span class="muted sm">완료되는 대로 아래 카드에 쌓입니다</span></div>`
-    + jobs.map((j) => `<div class="bb-row bb-${j.status}"><span class="bb-st">${ICON[j.status] || j.status}</span><span class="bb-t">${esc(j.text.slice(0, 60))}${j.text.length > 60 ? '…' : ''}</span><span class="bb-m">${j.result != null ? j.result + '편' : (j.error ? esc(j.error.slice(0, 40)) : '')}</span></div>`).join('');
+    + jobs.map((j) => `<div class="bb-row bb-${j.status}"><span class="bb-st">${ICON[j.status] || j.status}</span><span class="bb-t"><b>${providerLabel(j.provider)}</b> · ${esc(j.text.slice(0, 60))}${j.text.length > 60 ? '…' : ''}</span><span class="bb-m">${j.result != null ? j.result + '편' : (j.error ? esc(j.error.slice(0, 40)) : '')}</span></div>`).join('');
 }
 function pollBriefJob(j, jobs, scope) {
   const stampCat = scope === 'overseas' ? 'overseas' : 'domestic';
@@ -377,23 +422,24 @@ async function runBriefBatch() {
   const count = $('#bCount').value;
   const webOn = $('#cWeb') ? $('#cWeb').checked : true;
   const model = $('#cModel').value;
+  const providers = chosenProviders();
   const lens = bodyLenValues('brief');
   // 위의 "대상 상품 범위"(지역·판매조건·상품타입·상품 직접 선택)를 브리프 생성에도 그대로 적용한다.
   // scope 는 브리프 행마다 따로 고를 수 있어 아래에서 덮어쓴다. (지역기반 모드는 브리프의 모드가 아니라 제외)
-  const range = { region: $('#cRegion').value.trim(), condition: $('#cCondition').value, until: $('#cUntil').value };
+  const range = { editEnabled: $('#cGptEdit').checked, region: $('#cRegion').value.trim(), condition: $('#cCondition').value, until: $('#cUntil').value };
   if (pickCodes.size) range.productCodes = [...pickCodes];
   if (selTypes.size) range.productTypes = [...selTypes];
   if (selHotels.size) range.hotels = [...selHotels];
   genItems = []; renderContentCards(); // 이번 배치 결과로 초기화
-  const jobs = briefs.map((b, i) => ({ i, text: b.text, scope: b.scope, status: 'pending', jobId: null, result: null }));
+  const jobs = briefs.flatMap((b, i) => providers.map((provider) => ({ i, text: b.text, scope: b.scope, provider, status: 'pending', jobId: null, result: null })));
   renderBriefBatch(jobs);
   for (const j of jobs) {
     const scope = j.scope || $('#cScope').value;
     try {
-      const body = { ...range, mode: 'brief', brief: j.text, count, scope, webSearch: webOn, model, ...lens };
-      const { jobId, auto } = await api('/api/content/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      const body = { ...range, provider: j.provider, mode: 'brief', brief: j.text, count, scope, webSearch: webOn, model, ...lens };
+      const { jobId, jobPath, auto } = await api('/api/content/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
       j.jobId = jobId; j.status = 'running'; j.auto = auto; renderBriefBatch(jobs);
-      if (!auto) showJobBanner($('#contentJobBanner'), '콘텐츠 생성 요청 처리해줘', '자동 처리가 꺼져 있어요. 이 문구를 Claude Code에 입력하면 대기 중인 브리프가 처리됩니다.');
+      if (!auto) { const banner = $('#contentJobBanner'); banner.classList.remove('hidden'); showJobBanner(banner, manualContentPhrase(jobId, jobPath), '자동 처리가 꺼져 있어요. 해당 도구의 채팅에서 이 요청을 처리해 주세요.', j.provider); }
       pollBriefJob(j, jobs, scope);
     } catch (e) { j.status = 'failed'; j.error = e.message; renderBriefBatch(jobs); }
   }
@@ -418,7 +464,7 @@ async function loadRecent() {
       const loaded = loadedRecent.has(j.id);
       const canLoad = j.status === 'done' && j.count;
       return `<div class="rc-row rc-${j.status}"><span class="rc-st">${ST[j.status] || j.status}</span>
-        <span class="rc-t">${esc(j.label)}</span>
+        <span class="rc-t"><b>${providerLabel(j.provider)}</b> · ${esc(j.label)}</span>
         <span class="rc-m">${j.count != null ? j.count + '편' : ''} · ${relTime(j.createdAt)}</span>
         <span class="rc-a">${canLoad ? (loaded ? '<span class="muted sm">불러옴</span>' : `<button class="btn sm rc-load" data-id="${esc(j.id)}">불러오기</button>`) : ''}</span></div>`;
     }).join('') : '<div class="muted sm">아직 생성 기록이 없어요.</div>');
@@ -510,21 +556,21 @@ function renderPicker() {
     cb.closest('.pick-row').classList.toggle('sel', cb.checked); $('#pickCount').textContent = pickCodes.size; meta(); updateGenGate();
   });
 }
-function autoBanner(el, note) {
-  el.innerHTML = `<div><span class="spinner"></span> <b>Claude가 자동으로 작업 중…</b> ${esc(note || '')}</div>
+function autoBanner(el, note, provider = 'claude') {
+  el.innerHTML = `<div><span class="spinner"></span> <b>${providerLabel(provider)}가 자동으로 작업 중…</b> ${esc(note || '')}</div>
     <div class="muted sm" style="margin-top:6px">별도 세션에서 처리 중이라 문구 입력은 필요 없어요. 잠시만 기다려 주세요.</div>`;
 }
-function showJobBanner(el, phrase, note) {
-  el.innerHTML = `<div><span class="spinner"></span> <b>Claude가 작업 중…</b> ${esc(note || '')}</div>
-    <div class="trigger">지금 이 채팅(Claude Code)에 입력 → <code>${esc(phrase)}</code>
+function showJobBanner(el, phrase, note, provider = 'claude') {
+  el.innerHTML = `<div><span class="spinner"></span> <b>${providerLabel(provider)} 요청 대기 중…</b> ${esc(note || '')}</div>
+    <div class="trigger">${provider === 'codex' ? 'Codex 채팅' : 'Claude Code'}에 입력 → <code>${esc(phrase)}</code>
     <button class="btn sm" onclick="navigator.clipboard.writeText('${esc(phrase)}')">복사</button></div>`;
 }
 function usageLine(u) {
   if (!u) return '생성 완료.';
   const inTok = (u.inputTokens || 0) + (u.cacheReadTokens || 0) + (u.cacheCreateTokens || 0);
-  return `생성 완료 · 모델 ${esc(u.model || '')} · 토큰 입력 ${inTok.toLocaleString()} / 출력 ${(u.outputTokens || 0).toLocaleString()} · 비용 $${(u.costUsd || 0).toFixed(4)} · ${Math.round((u.durationMs || 0) / 1000)}초`;
+  return `생성 완료 · 모델 ${esc(u.model || '')} · 토큰 입력 ${inTok.toLocaleString()} / 출력 ${(u.outputTokens || 0).toLocaleString()} · ${u.costUsd == null ? '비용 정보 미제공' : '비용 $' + u.costUsd.toFixed(4)} · ${Math.round((u.durationMs || 0) / 1000)}초`;
 }
-function pollContent(jobId, banner, auto, stampCat, note) {
+function pollContent(jobId, banner, auto, stampCat, note, provider = 'claude', append = false) {
   let tries = 0;
   const t = setInterval(async () => {
     tries++;
@@ -538,20 +584,23 @@ function pollContent(jobId, banner, auto, stampCat, note) {
       }
       if (s.status === 'done' && s.items) {
         if (stampCat) s.items.forEach((it) => { it.category = stampCat; }); // 생성 scope로 국내/해외 분류 기록
-        clearInterval(t); renderContentCards(s.items); markDone(2);
+        clearInterval(t);
+        s.items.forEach((it) => { it.generationProvider = it.generationProvider || provider; });
+        if (append) { genItems.push(...s.items); renderContentCards(); } else renderContentCards(s.items);
+        markDone(2);
         banner.classList.remove('hidden');
-        banner.innerHTML = (s.warning ? `<b>⚠ ${esc(s.warning)}</b><br>` : '') + usageLine(s.usage);
-        if (!s.usage) setTimeout(async () => { try { const s2 = await api('/api/content/job?id=' + jobId); banner.innerHTML = usageLine(s2.usage); } catch {} }, 3000);
+        banner.innerHTML = `<b>${providerLabel(provider)}</b> · ` + (s.warning ? `<b>⚠ ${esc(s.warning)}</b><br>` : '') + usageLine(s.usage);
+        if (!s.usage) setTimeout(async () => { try { const s2 = await api('/api/content/job?id=' + jobId); banner.innerHTML = `<b>${providerLabel(provider)}</b> · ` + usageLine(s2.usage); } catch {} }, 3000);
         return;
       }
       // 샤딩 진행 상황 표시(주제 기획 중 → 샤드 n/m 집필 중)
       const pr = s.progress;
       if (pr && auto) {
-        const label = pr.phase === 'plan' ? '주제 기획 중…' : `집필 중 ${pr.done}/${pr.total} 완료`;
+        const label = pr.phase === 'plan' ? '주제 기획 중…' : pr.phase === 'edit' ? 'GPT 게시글 편집 중…' : `집필 중 ${pr.done}/${pr.total} 완료`;
         banner.classList.remove('hidden');
         banner.innerHTML = `<span class="spinner"></span> ${esc(label)}${note ? ' · ' + esc(note) : ''}`;
       }
-      if (auto && tries === 60 && !pr) showJobBanner(banner, '콘텐츠 생성 요청 처리해줘', '자동 처리가 지연되네요. 이 문구를 입력하면 수동으로 처리돼요.');
+      if (auto && tries === 60 && !pr) banner.innerHTML = `<span class="spinner"></span> ${providerLabel(provider)} 생성 중… 상품 수와 본문 길이에 따라 시간이 걸릴 수 있어요.`;
     } catch (e) { clearInterval(t); banner.innerHTML = '오류: ' + esc(e.message); }
   }, 1500);
 }
@@ -562,7 +611,7 @@ function cardInner(it) {
   const alts = (it.titleAlternatives && it.titleAlternatives.length)
     ? `<div class="alts"><b>제목 후보</b><ul>${it.titleAlternatives.map((a) => `<li>${esc(a.title || a)}${a.reason ? ` <span class="muted">— ${esc(a.reason)}</span>` : ''}</li>`).join('')}</ul></div>` : '';
   return `<h3>${esc(it.title)}</h3>
-    <div class="meta">${it.form ? `<span class="badge">${esc(it.form)}</span>` : ''}${it.persona ? `<span class="badge">${esc(it.persona)}</span>` : ''}</div>
+    <div class="meta">${it.generationProvider ? `<span class="badge">${providerLabel(it.generationProvider)}</span>` : ''}${it.form ? `<span class="badge">${esc(it.form)}</span>` : ''}${it.persona ? `<span class="badge">${esc(it.persona)}</span>` : ''}</div>
     <div class="body">${specHtml(it.body, it.speculative)}</div>
     ${(it.speculative && it.speculative.length) ? '<div class="spec-note">색이 다른 문장 = 추측성(데이터·검색으로 미확인). 발행 전 확인하세요.</div>' : ''}
     ${alts}

@@ -60,9 +60,25 @@
     <p class="muted">주제로 자동 생성하거나, 내가 쓴 콘텐츠에 어울리는 상품·호텔·여행지를 매칭할 수 있어요. 아래에서 상품을 직접 골라 그 안에서만 만들 수도 있습니다.</p>
 
     <div class="mode-tabs" id="genModeTabs">
-      <button class="mtab active" data-mode="generate">주제로 자동 생성</button>
+      <button class="mtab active" data-mode="generate">게시글 생성</button>
       <button class="mtab" data-mode="brief">브리프(지시)로 생성</button>
       <button class="mtab" data-mode="match">내가 쓴 콘텐츠에 상품 매칭</button>
+    </div>
+    <div class="gen-group">
+      <div class="form">
+        <label>콘텐츠 생성 도구
+          <select id="cProvider" class="input">
+            <option value="claude">Claude</option>
+            <option value="codex">GPT</option>
+            <option value="both">둘 다 (Claude + GPT)</option>
+          </select>
+        </label>
+        <label>Claude 생성 속도
+          <select id="cModel" class="input"><option value="opus">품질 우선 (Opus)</option><option value="sonnet">빠르게 (Sonnet)</option></select>
+        </label>
+      </div>
+      <label id="gptEditWrap" class="web-check"><input type="checkbox" id="cGptEdit" /> GPT 초안 생성 후 게시글 편집 <span class="muted sm">(선택 · 추가 시간과 사용량 발생)</span></label>
+      <p id="providerNote" class="muted sm">선택한 도구로 콘텐츠를 생성합니다.</p>
     </div>
     <label class="web-check"><input type="checkbox" id="cWeb" checked /> 인터넷 검색으로 사실·아이디어 보강 <span class="muted sm">(품질, 속도는 느려짐)</span></label>
 
@@ -134,6 +150,8 @@
 
     <!-- generate 모드 전용 -->
     <div id="genFields">
+      <label>생성 방식 <select id="cStrategy" class="input"><option value="manual">조건에 맞춰 생성하기</option><option value="auto">알아서 생성하기</option></select></label>
+      <p id="autoStrategyNote" class="muted sm hidden">리포트와 수정 사례를 참고해 주제·글 길이·형·화자를 정합니다. 국내 300~500자 / 해외 300~600자, 제목 14~19자 목표. 아래 상품 범위는 모두 유지하며, 주제 개수만 직접 정하세요. 성과 향상을 보장하지는 않습니다.</p>
       <div class="gen-group">
       <div class="gen-group-h">콘텐츠 생성 조건 <span class="muted sm">— 주제·형식·화자</span></div>
       <div class="form">
@@ -142,9 +160,6 @@
         </label>
         <label>주제별 개수
           <input id="cPerTopic" class="input" type="number" min="1" max="10" value="1" />
-        </label>
-        <label>생성 속도
-          <select id="cModel" class="input"><option value="opus">품질 우선 (Opus)</option><option value="sonnet">빠르게 (Sonnet)</option></select>
         </label>
         <label>본문 길이
           <select id="cBodyLen" class="input">

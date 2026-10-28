@@ -6,7 +6,7 @@
  * 크롤링 → 콘텐츠 생성 → 이미지 찾기 → 미리보기 를 한 흐름으로.
  *
  *  ⛔ NAS는 읽기 전용. (image-picker 원칙 그대로 — 조회/썸네일/다운로드만)
- *  🤝 콘텐츠 생성/이미지 추천은 이 Claude Code 세션과 jobs/ 파일로 연동(API키 불필요).
+ *  🤝 콘텐츠는 Claude/GPT(Codex)/둘 다 선택. 이미지 추천은 기존 Claude 연동 유지.
  *
  *  실행:  node server.js   →  http://localhost:8790
  */
@@ -19,6 +19,8 @@ const { spawn } = require('child_process');
 
 const crawl = require('./crawl');
 const jobs = require('./jobs');
+const contentAI = require('./content-ai');
+const contentStrategy = require('./content-strategy');
 const { Synology, isImage } = require('../image-picker/synology');
 const { exportCandidates } = require('../image-picker/exporter');
 const overseas = require('./overseas');
@@ -182,10 +184,15 @@ function isDue(sch, now) {
 }
 // 예약 파라미터로 콘텐츠 job 생성(+scheduled 표시) 후 Claude 자동 실행
 function createScheduledJob(sch) {
-  const job = buildContentJob({ ...(sch.params || {}), mode: 'generate' });
-  try { const jp = jobs.jobPath(job.id); const o = JSON.parse(fs.readFileSync(jp, 'utf8')); o.scheduled = true; o.scheduleName = sch.name; o.harvested = false; fs.writeFileSync(jp, JSON.stringify(o, null, 2)); } catch {}
-  dispatchToClaude(job.id, 'content');
-  return job;
+  const selected = contentAI.providers((sch.params || {}).provider);
+  const created = selected.map((provider) => buildContentJob({ ...(sch.params || {}), provider, mode: 'generate' }));
+  for (const job of created) {
+    const jp = jobs.jobPath(job.id); const o = jobs.readJob(job.id);
+    o.scheduled = true; o.scheduleName = sch.name; o.harvested = false;
+    fs.writeFileSync(jp, JSON.stringify(o, null, 2));
+    dispatchContent(job.id, 'content');
+  }
+  return created[0];
 }
 // 완료된 예약 job의 결과를 "저장된 콘텐츠"로 옮김(사용자가 나중에 확인)
 function harvestScheduledJobs() {
@@ -193,7 +200,7 @@ function harvestScheduledJobs() {
   if (!done.length) return;
   let saved = loadSaved();
   for (const j of done) {
-    for (const it of j.output.items) {
+    for (const it of contentItems(j, j.output.items)) {
       const id = contentKey(it);
       saved = saved.filter((x) => x.id !== id);
       saved.unshift({ ...it, id, savedAt: new Date().toISOString(), fromSchedule: j.scheduleName || true });
@@ -506,6 +513,32 @@ function dispatchToClaude(jobId, kind) {
   }
 }
 
+// All content paths (including shards and schedules) route by the saved provider.
+const dispatchToCodex = contentAI.createCodexRunner({ dir: DIR, jobs, onPlan: fanOutPlan, markFailed: markJobFailed });
+function dispatchContent(jobId, kind) {
+  const j = jobs.readJob(jobId);
+  return j && j.input && j.input.provider === 'codex' ? dispatchToCodex(jobId) : dispatchToClaude(jobId, kind);
+}
+function createContentRuns(body) {
+  const selected = contentAI.providers(body.provider);
+  const cnt = Number(body.count) || 0;
+  const shardable = (!body.mode || body.mode === 'generate') && !body.regionMode && cnt >= SHARD_MIN_COUNT;
+  // Build every request before dispatch so an invalid range never launches one side only.
+  const built = selected.map((provider) => buildContentJob({ ...body, provider, ...(shardable ? { phase: 'plan' } : {}) }));
+  if (built.some((job) => !job.productCount)) {
+    built.forEach((job) => markJobFailed(job.id, '조건에 맞는 상품이 없습니다.'));
+    throw new Error('조건에 맞는 상품이 없습니다. 조건/선택을 확인하세요.');
+  }
+  return built.map((job) => {
+    const auto = dispatchContent(job.id, shardable ? 'content(plan)' : 'content');
+    if (shardable) watchPlanAndFanOut(job.id);
+    return { jobId: job.id, jobPath: jobs.jobPath(job.id), provider: job.input.provider, productCount: job.productCount, auto, sharded: shardable, shards: shardable ? shardCountFor(cnt) : 1 };
+  });
+}
+function contentItems(job, items) {
+  return expandMatched(items).map((it) => ({ ...it, generationProvider: (job.input && job.input.provider) || 'claude' }));
+}
+
 // ── 생성 병렬화(샤딩) ────────────────────────────────────────────────────────
 // 한 job에서 N편을 순차로 쓰면 20편에 20분씩 걸린다(실측). 그래서 2단계로 나눈다:
 //   1단계 plan  : 전체 상품을 보고 주제 N개를 "한 번에" 기획 → 주제 다양성은 여기서 보장(품질 유지)
@@ -544,7 +577,7 @@ function _fanOutPlanInner(planId) {
       if (!slice.length) continue;
       const wj = buildContentJob({ ...body, phase: 'write', assignedTopics: slice, shardIndex: n, shardTotal: k, count: slice.length });
       shardJobs.push(wj.id);
-      dispatchToClaude(wj.id, 'content(write ' + (n + 1) + '/' + k + ')');
+      dispatchContent(wj.id, 'content(write ' + (n + 1) + '/' + k + ')');
     }
     const jp = jobs.jobPath(planId);
     const o = JSON.parse(fs.readFileSync(jp, 'utf8'));
@@ -728,8 +761,8 @@ const CONDITION_LABEL = { all: '노출 상품 전체(판매중·판매예정·�
 // ⚠️ 예전엔 productTypes 가 있으면 양쪽 데이터셋을 다 훑고 scope·region 을 무시해서,
 //    "부산"을 골라도 서울 상품이 섞여 나왔다. 타입은 범위를 넓히는 조건이 아니라 좁히는 조건이다.
 // productCodes(상품 직접 선택)만 예외 — 사용자가 콕 집은 것이므로 다른 조건보다 우선한다.
-function pickProducts({ scope, region, condition, until, productCodes, productTypes, hotels }) {
-  if (Array.isArray(productCodes) && productCodes.length) {
+function pickProducts({ scope, region, condition, until, productCodes, productTypes, hotels, strictFilters }) {
+  if (!strictFilters && Array.isArray(productCodes) && productCodes.length) {
     const set = new Set(productCodes.map(String));
     const all = [...crawl.normalizedItems('domestic'), ...crawl.normalizedItems('overseas')];
     return all.filter((r) => set.has(String(r.productCode)) || (r.productId && set.has(String(r.productId))));
@@ -746,6 +779,10 @@ function pickProducts({ scope, region, condition, until, productCodes, productTy
   if (Array.isArray(hotels) && hotels.length) { // 호텔(해외는 여행지) 단위 지정
     const set = new Set(hotels.map(String));
     items = items.filter((r) => set.has(String(r.hotel || r.region || '')));
+  }
+  if (strictFilters && Array.isArray(productCodes) && productCodes.length) {
+    const selected=new Set(productCodes.map(String));
+    items=items.filter(r=>selected.has(String(r.productCode)) || selected.has(String(r.productId)));
   }
   return items;
 }
@@ -901,7 +938,8 @@ function expandMatched(items) {
   });
 }
 
-function buildContentJob({ topic, count, perTopic, forms, scope, region, form, persona, condition, until, productCodes, productTypes, mode, userTitle, userBody, model, brief, webSearch, bodyMin, bodyMax, regionMode, festival, hotels, phase, assignedTopics, shardIndex, shardTotal }) {
+function buildContentJob(options) { return buildContentJobCore(contentStrategy.prepare(options)); }
+function buildContentJobCore({ generationStrategy, strictFilters, provider, editEnabled, topic, count, perTopic, forms, scope, region, form, persona, condition, until, productCodes, productTypes, mode, userTitle, userBody, model, brief, webSearch, bodyMin, bodyMax, regionMode, festival, hotels, phase, assignedTopics, shardIndex, shardTotal }) {
   const per = Math.max(1, Number(perTopic) || 1);
   const web = !!webSearch || !!regionMode; // 지역 기반 콘텐츠는 인터넷 검색 필수
   // 사실 근거 + 추측 표기 규칙(모든 생성 모드 공통): 데이터에 없는 구체정보는 검색으로 확인, 못 하면 추측 처리
@@ -921,7 +959,7 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
   const webLineGen = web ? '※ 인터넷 검색 활용(2가지): (1) 주제 발굴 — 요즘 화제·시즌·트렌드(계절 이벤트, 제철 명물, 연휴, 뜨는 여행지·테마, 최신 이슈)를 WebSearch로 찾아 "유저 관심이 높을 새로운 주제"를 발굴한다. 단, 반드시 실제 products와 연결되는 주제만 채택(데이터에 상품이 없으면 버림). (2) 사실 확인 — 여행지·명물의 유래·수치·현지 이야기를 검색으로 확인해 정확히 반영(추측·부정확 금지). 검색은 필요한 만큼만.' : '';
   const formList = Array.isArray(forms) ? forms.filter(Boolean) : (form ? [form] : []);
   const cond = condition || 'selling';
-  const items = pickProducts({ scope, region, condition: cond, until, productCodes, productTypes, hotels });
+  const items = pickProducts({ scope, region, condition: cond, until, productCodes, productTypes, hotels, strictFilters });
   // 지역 기반 콘텐츠: 대상 지역 후보(선택 지역 1개 또는 해당 구분의 전체 지역 목록)
   const regionCands = regionMode ? (region ? [region] : regionList(scope).map((r) => r.region)) : null;
   // 지역/축제 콘텐츠도 그 지역 상품을 matched로 붙이도록, 대상 지역 상품 풀 제공
@@ -1101,12 +1139,12 @@ function buildContentJob({ topic, count, perTopic, forms, scope, region, form, p
   }
 
   return jobs.createJob('content', {
-    input: { phase: phase || null, assignedTopics: assignedTopics || null, shardIndex: shardIndex == null ? null : shardIndex, shardTotal: shardTotal == null ? null : shardTotal, mode: mode || 'generate', topic: topic || '', count: mode === 'match' ? 1 : (Number(count) || (mode === 'brief' ? 1 : 3)), perTopic: (mode === 'match' || mode === 'brief' || regionMode) ? 1 : per, forms: formList, scope, region: region || '', persona: persona || '', condition: cond, until: until || '', productCodes: productCodes || [], productTypes: productTypes || [], hotels: hotels || [], model: model === 'sonnet' ? 'sonnet' : 'opus', webSearch: web, bodyMin: bMin, bodyMax: bMax, regionMode: !!regionMode, regions: regionCands || [], festival: !!useFestival, brief: mode === 'brief' ? (brief || '') : '', userContent: mode === 'match' ? { title: userTitle || '', body: userBody || '' } : null },
+    input: { generationStrategy: generationStrategy || null, strategyVersion: generationStrategy === 'auto' ? contentStrategy.report.version : null, provider: contentAI.providers(provider)[0], editEnabled: editEnabled === true, phase: phase || null, assignedTopics: assignedTopics || null, shardIndex: shardIndex == null ? null : shardIndex, shardTotal: shardTotal == null ? null : shardTotal, mode: mode || 'generate', topic: topic || '', count: mode === 'match' ? 1 : (Number(count) || (mode === 'brief' ? 1 : 3)), perTopic: (mode === 'match' || mode === 'brief' || regionMode) ? 1 : per, forms: formList, scope, region: region || '', persona: persona || '', condition: cond, until: until || '', productCodes: productCodes || [], productTypes: productTypes || [], hotels: hotels || [], model: model === 'sonnet' ? 'sonnet' : 'opus', webSearch: web, bodyMin: bMin, bodyMax: bMax, regionMode: !!regionMode, regions: regionCands || [], festival: !!useFestival, brief: mode === 'brief' ? (brief || '') : '', userContent: mode === 'match' ? { title: userTitle || '', body: userBody || '' } : null },
     rules: rulesForJob,
     referenceExamples: references,
     productCount: regionMode ? Math.max(1, (regionCands || []).length) : items.length,
     products: jobProducts,
-    instructions,
+    instructions: instructions + (generationStrategy === 'auto' ? '\n\n' + contentStrategy.instructions({generationStrategy}) : ''),
     output: null,
   });
 }
@@ -1177,14 +1215,10 @@ const server = http.createServer(async (req, res) => {
       if (!crawl.datasetInfo('domestic') && !crawl.datasetInfo('overseas')) return sendErr(res, 400, '먼저 상품을 불러오세요.');
       if (REF_SHARED && STUDIO_CFG.autoPull !== false) await gitPull(); // 최신 공유 모범 코퍼스로 생성
       if (body.mode === 'match' && !(body.userBody || '').trim()) return sendErr(res, 400, '매칭할 콘텐츠 본문을 입력하세요.');
-      // 일반 생성이고 편수가 많으면 plan→write 샤딩으로 병렬 처리(그 외는 기존 단일 job 그대로)
-      const cnt = Number(body.count) || 0;
-      const shardable = (!body.mode || body.mode === 'generate') && !body.regionMode && cnt >= SHARD_MIN_COUNT;
-      const job = buildContentJob(shardable ? { ...body, phase: 'plan' } : body);
-      if (!job.productCount) return sendErr(res, 400, '조건에 맞는 상품이 없습니다. 조건/선택을 확인하세요.');
-      const auto = dispatchToClaude(job.id, shardable ? 'content(plan)' : 'content');
-      if (shardable) watchPlanAndFanOut(job.id);
-      return sendJson(res, 200, { jobId: job.id, productCount: job.productCount, auto, sharded: shardable, shards: shardable ? shardCountFor(cnt) : 1 });
+      try {
+        const runs = createContentRuns(body);
+        return sendJson(res, 200, { ...runs[0], jobs: runs }); // legacy clients still receive jobId
+      } catch (e) { return sendErr(res, 400, e.message); }
     }
     // 상품 선택 UI용: 필터 옵션(호텔/여행지·종류) + 전체 상품(경량)
     // 상품 직접 선택용 목록. 파라미터를 주면 "콘텐츠 생성 조건"과 똑같이 걸러서 내려준다
@@ -1233,7 +1267,7 @@ const server = http.createServer(async (req, res) => {
           cacheReadTokens: us.reduce((a, u) => a + (u.cacheReadTokens || 0), 0),
           cacheCreateTokens: us.reduce((a, u) => a + (u.cacheCreateTokens || 0), 0),
           outputTokens: us.reduce((a, u) => a + (u.outputTokens || 0), 0),
-          costUsd: us.reduce((a, u) => a + (u.costUsd || 0), 0),
+          costUsd: us.some((u) => u.costUsd == null) ? null : us.reduce((a, u) => a + u.costUsd, 0),
           // 샤드는 동시에 도니 벽시계 시간은 "기획 + 가장 오래 걸린 샤드"로 본다
           durationMs: (us[0].durationMs || 0) + Math.max(0, ...us.slice(1).map((u) => u.durationMs || 0)),
         };
@@ -1250,7 +1284,7 @@ const server = http.createServer(async (req, res) => {
         // 일부 샤드가 실패해도 성공한 샤드 결과는 살려 돌려준다(예전엔 하나만 실패해도 전부 못 불러왔다)
         const partial = settled && failedKids.length > 0 && doneKids.length > 0;
         const items = (allDone || partial)
-          ? expandMatched(doneKids.reduce((a, k) => a.concat((k.output && k.output.items) || []), []))
+          ? contentItems(job, doneKids.reduce((a, k) => a.concat((k.output && k.output.items) || []), []))
           : null;
         return sendJson(res, 200, {
           id: job.id,
@@ -1266,9 +1300,9 @@ const server = http.createServer(async (req, res) => {
       const planning = job.input && job.input.phase === 'plan' && job.status !== 'failed';
       return sendJson(res, 200, {
         id: job.id, status: job.status, input: job.input,
-        items: ((job.output && job.output.items) || []).length ? expandMatched(job.output.items) : null, usage: job.usage || null,
+        items: ((job.output && job.output.items) || []).length ? contentItems(job, job.output.items) : null, usage: job.usage || null,
         error: job.error || null,
-        progress: planning ? { phase: 'plan', done: 0, total: 0 } : null,
+        progress: planning ? { phase: 'plan', done: 0, total: 0 } : job.generationStage === 'editing' ? { phase: 'edit', done: 0, total: 1 } : null,
       });
     }
     // 최근 생성 잡 목록(새로고침/재접속 후 결과 복원용)
@@ -1302,7 +1336,7 @@ const server = http.createServer(async (req, res) => {
             items = done.length === sh.length ? done.reduce((a, k) => a.concat(k.output.items), []) : null;
           }
         }
-        return { id: j.id, status, mode: inp.mode || 'generate', regionMode: !!inp.regionMode, festival: !!inp.festival, scope: inp.scope || '', label, count: items ? items.length : null, createdAt: j.createdAt };
+        return { id: j.id, provider: inp.provider || 'claude', status, mode: inp.mode || 'generate', regionMode: !!inp.regionMode, festival: !!inp.festival, scope: inp.scope || '', label, count: items ? items.length : null, createdAt: j.createdAt };
       });
       return sendJson(res, 200, { jobs: out });
     }

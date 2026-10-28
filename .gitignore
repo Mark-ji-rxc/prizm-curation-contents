@@ -47,3 +47,6 @@ node_modules/
 .DS_Store
 *.log
 studio/notion-sync.json
+
+# GPT local generation artifacts
+studio/.codex-runs/
